@@ -6,9 +6,15 @@ import type { PipelineStep } from "@/lib/pipeline-run";
 
 type PipelineRunView = {
   id: number;
-  status: "queued" | "running" | "completed" | "failed";
+  status: "queued" | "running" | "completed" | "failed" | "canceled";
+  cancelRequested: boolean;
   sourceIds: string[];
   steps: PipelineStep[];
+  logs: Array<{
+    timestamp: string | Date;
+    level: "info" | "warn" | "error";
+    message: string;
+  }>;
   summary: {
     ingestedSources?: number;
     selectedPrimaryKeywords?: number;
@@ -76,6 +82,32 @@ export function PipelinePanel({
     }, 2000);
   }
 
+  async function mutateRun(action: "cancel" | "force-release") {
+    if (!run) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setMessage(null);
+
+    try {
+      const response = await fetch(`/api/admin/pipeline-runs/${run.id}/${action}`, {
+        method: "POST",
+      });
+      const payload = (await response.json()) as { ok: boolean; error?: string };
+      const latestRun = await fetchLatestRun();
+      setRun(latestRun);
+
+      if (!payload.ok) {
+        setMessage(payload.error ?? "Pipeline action failed");
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Pipeline action failed");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   async function handleRun(startFrom?: PipelineStep["id"]) {
     setIsSubmitting(true);
     setMessage(null);
@@ -133,6 +165,27 @@ export function PipelinePanel({
         </button>
       </div>
 
+      {run?.status === "running" ? (
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button
+            className="rounded-full border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 transition-colors hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            disabled={isSubmitting || run.cancelRequested}
+            onClick={() => mutateRun("cancel")}
+          >
+            {run.cancelRequested ? "Cancel Requested" : "Request Cancel"}
+          </button>
+          <button
+            className="rounded-full border border-rose-300 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-900 transition-colors hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            disabled={isSubmitting}
+            onClick={() => mutateRun("force-release")}
+          >
+            Force Release
+          </button>
+        </div>
+      ) : null}
+
       {message ? (
         <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
           {message}
@@ -146,6 +199,12 @@ export function PipelinePanel({
             <RunStat label="Status" value={run.status} />
             <RunStat label="Started" value={formatDate(run.startedAt)} />
           </div>
+
+          {run.cancelRequested ? (
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              Cancel has been requested. The pipeline will stop at the next safe boundary.
+            </div>
+          ) : null}
 
           <div className="mt-5 grid gap-3">
             {run.steps.map((step, index) => (
@@ -206,6 +265,33 @@ export function PipelinePanel({
             </div>
           ) : null}
 
+          <div className="mt-5 rounded-[24px] border border-black/10 bg-stone-50/80 p-4">
+            <div className="text-sm font-semibold text-slate-900">Run Console</div>
+            <div className="mt-3 max-h-72 overflow-auto rounded-2xl bg-slate-950 px-4 py-3 font-mono text-xs text-slate-100">
+              {run.logs.length > 0 ? (
+                run.logs.map((entry, index) => (
+                  <div key={`${entry.timestamp}-${index}`} className="py-1">
+                    <span className="text-slate-400">[{formatDateTime(entry.timestamp)}]</span>{" "}
+                    <span
+                      className={
+                        entry.level === "error"
+                          ? "text-rose-300"
+                          : entry.level === "warn"
+                            ? "text-amber-300"
+                            : "text-emerald-300"
+                      }
+                    >
+                      {entry.level.toUpperCase()}
+                    </span>{" "}
+                    <span>{entry.message}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="text-slate-400">No logs yet.</div>
+              )}
+            </div>
+          </div>
+
           {run.error ? (
             <div className="mt-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
               {run.error}
@@ -257,5 +343,12 @@ function formatDate(value: string | Date) {
   return new Intl.DateTimeFormat("ko-KR", {
     dateStyle: "short",
     timeStyle: "short",
+  }).format(new Date(value));
+}
+
+function formatDateTime(value: string | Date) {
+  return new Intl.DateTimeFormat("ko-KR", {
+    dateStyle: "short",
+    timeStyle: "medium",
   }).format(new Date(value));
 }

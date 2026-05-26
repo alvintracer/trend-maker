@@ -60,6 +60,7 @@ export async function fetchGoogleSuggestCandidates(
       "accept-language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
     },
     cache: "no-store",
+    signal: AbortSignal.timeout(12000),
   });
 
   if (!response.ok) {

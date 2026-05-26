@@ -6,10 +6,13 @@ import { ingestSource } from "@/lib/ingestion-service";
 import { generateKeywordAnalysesForKeywords } from "@/lib/keyword-analysis-service";
 import { generatePrimaryKeywordsForSources } from "@/lib/keyword-service";
 import {
+  appendPipelineRunLog,
+  cancelCompletedPipelineRun,
   completePipelineRun,
   createInitialPipelineSteps,
   createPipelineRun,
   failPipelineRun,
+  getPipelineRunRuntime,
   type PipelineStep,
   updatePipelineRunSteps,
 } from "@/lib/pipeline-run";
@@ -59,6 +62,7 @@ type StageUpdate = {
 
 type FullPipelineHooks = {
   onStageUpdate?: (update: StageUpdate) => Promise<void> | void;
+  assertContinuable?: () => Promise<void> | void;
 };
 
 type KeywordWithMetrics = {
@@ -165,6 +169,9 @@ export async function runFullPipeline(
   const notify = async (update: StageUpdate) => {
     await hooks.onStageUpdate?.(update);
   };
+  const assertContinuable = async () => {
+    await hooks.assertContinuable?.();
+  };
 
   const ingestion: Array<IngestionSuccess | IngestionFailure> = [];
   let successfulSourceIds = [...sourceIds];
@@ -207,9 +214,11 @@ export async function runFullPipeline(
       };
 
   if (shouldRunStage("ingest")) {
+    await assertContinuable();
     await notify({ stepId: "ingest", status: "running" });
 
     for (const sourceId of sourceIds) {
+      await assertContinuable();
       try {
         const result = await ingestSource(sourceId);
         ingestion.push({
@@ -250,6 +259,7 @@ export async function runFullPipeline(
   }
 
   if (shouldRunStage("primary")) {
+    await assertContinuable();
     await notify({ stepId: "primary", status: "running" });
 
     primaryResult = await generatePrimaryKeywordsForSources(successfulSourceIds);
@@ -313,6 +323,7 @@ export async function runFullPipeline(
   }
 
   if (shouldRunStage("secondary")) {
+    await assertContinuable();
     await notify({ stepId: "secondary", status: "running" });
 
     secondaryResult = await generateSecondaryKeywordsForPrimaryKeywords(
@@ -357,6 +368,7 @@ export async function runFullPipeline(
   }
 
   if (shouldRunStage("analysis")) {
+    await assertContinuable();
     await notify({ stepId: "analysis", status: "running" });
 
     if (!getOpenAIConfigured()) {
@@ -411,6 +423,7 @@ export async function runFullPipeline(
   analyzedSecondaryIds = analyzedSecondaryKeywords.map((keyword) => keyword.id);
 
   if (shouldRunStage("hubs")) {
+    await assertContinuable();
     await notify({ stepId: "hubs", status: "running" });
   } else {
     await notify({
@@ -434,6 +447,7 @@ export async function runFullPipeline(
   }
 
   if (shouldRunStage("pages")) {
+    await assertContinuable();
     await notify({ stepId: "pages", status: "running" });
   } else {
     await notify({
@@ -459,6 +473,7 @@ export async function runFullPipeline(
   const publishResults = [];
 
   if (shouldRunStage("publish")) {
+    await assertContinuable();
     await notify({ stepId: "publish", status: "running" });
   } else {
     await notify({
@@ -484,6 +499,7 @@ export async function runFullPipeline(
     const publishedHubIds = new Set<number>();
 
     for (const page of generatedPages) {
+      await assertContinuable();
       try {
         if (page.hubId) {
           if (publishedHubIds.has(page.hubId)) {
@@ -561,6 +577,30 @@ export async function runTrackedFullPipeline(options: FullPipelineOptions = {}) 
     await updatePipelineRunSteps(run.id, steps);
   }
 
+  async function appendLog(level: "info" | "warn" | "error", message: string) {
+    await appendPipelineRunLog(run.id, {
+      timestamp: new Date().toISOString(),
+      level,
+      message,
+    });
+  }
+
+  async function assertContinuable() {
+    const runtime = await getPipelineRunRuntime(run.id);
+
+    if (!runtime) {
+      throw new Error("Pipeline run no longer exists");
+    }
+
+    if (runtime.status !== "running") {
+      throw new Error(`Pipeline run is no longer running (${runtime.status})`);
+    }
+
+    if (runtime.cancelRequested) {
+      throw new Error("Pipeline run canceled by admin");
+    }
+  }
+
   function updateStep(stepId: PipelineStep["id"], patch: Partial<PipelineStep>) {
     const target = steps.find((step) => step.id === stepId);
 
@@ -581,6 +621,7 @@ export async function runTrackedFullPipeline(options: FullPipelineOptions = {}) 
     }
 
     await syncSteps();
+    await appendLog("warn", `Pipeline resumed from stage: ${startFrom}`);
   }
 
   try {
@@ -602,7 +643,12 @@ export async function runTrackedFullPipeline(options: FullPipelineOptions = {}) 
               : undefined,
         });
         await syncSteps();
+        await appendLog(
+          update.status === "failed" ? "error" : update.status === "skipped" ? "warn" : "info",
+          `${update.stepId}: ${update.status}${update.summary ? ` - ${update.summary}` : ""}`,
+        );
       },
+      assertContinuable,
     });
 
     await completePipelineRun(run.id, steps, {
@@ -613,6 +659,7 @@ export async function runTrackedFullPipeline(options: FullPipelineOptions = {}) 
       generatedPages: result.pages.generatedCount,
       publishedItems: result.publish.succeeded,
     });
+    await appendLog("info", "Pipeline run completed");
 
     return {
       runId: run.id,
@@ -633,7 +680,13 @@ export async function runTrackedFullPipeline(options: FullPipelineOptions = {}) 
     }
 
     await syncSteps();
-    await failPipelineRun(run.id, steps, message);
+    if (message === "Pipeline run canceled by admin") {
+      await cancelCompletedPipelineRun(run.id, steps);
+      await appendLog("warn", "Pipeline run canceled by admin");
+    } else {
+      await failPipelineRun(run.id, steps, message);
+      await appendLog("error", message);
+    }
     throw error;
   }
 }

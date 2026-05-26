@@ -63,6 +63,7 @@ enum PipelineRunStatus {
   running
   completed
   failed
+  canceled
 
   @@schema("trend_maker")
 }
@@ -257,8 +258,10 @@ model PipelineRun {
   status      PipelineRunStatus @default(queued)
   sourceIdsRaw String?
   stepsJson   String
+  logsJson    String            @default("[]")
   summaryJson String?
   error       String?
+  cancelRequested Boolean       @default(false)
   startedAt   DateTime          @default(now())
   finishedAt  DateTime?
   createdAt   DateTime          @default(now())

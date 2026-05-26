@@ -14,6 +14,12 @@ export type PipelineStep = {
   error?: string;
 };
 
+export type PipelineLogEntry = {
+  timestamp: string;
+  level: "info" | "warn" | "error";
+  message: string;
+};
+
 type PipelineSummary = {
   ingestedSources?: number;
   selectedPrimaryKeywords?: number;
@@ -62,8 +68,10 @@ function normalizeRun(run: {
   status: PipelineRunStatus;
   sourceIdsRaw: string | null;
   stepsJson: string;
+  logsJson: string;
   summaryJson: string | null;
   error: string | null;
+  cancelRequested: boolean;
   startedAt: Date;
   finishedAt: Date | null;
   createdAt: Date;
@@ -74,8 +82,10 @@ function normalizeRun(run: {
     status: run.status,
     sourceIds: parseJson<string[]>(run.sourceIdsRaw, []),
     steps: parseJson<PipelineStep[]>(run.stepsJson, createInitialPipelineSteps()),
+    logs: parseJson<PipelineLogEntry[]>(run.logsJson, []),
     summary: parseJson<PipelineSummary | null>(run.summaryJson, null),
     error: run.error,
+    cancelRequested: run.cancelRequested,
     startedAt: run.startedAt,
     finishedAt: run.finishedAt,
     createdAt: run.createdAt,
@@ -89,6 +99,13 @@ export async function createPipelineRun(sourceIds: string[]) {
       status: PipelineRunStatus.running,
       sourceIdsRaw: serializeJson(sourceIds),
       stepsJson: serializeJson(createInitialPipelineSteps()),
+      logsJson: serializeJson([
+        {
+          timestamp: new Date().toISOString(),
+          level: "info",
+          message: "Pipeline run created",
+        },
+      ] satisfies PipelineLogEntry[]),
     },
   });
 
@@ -106,6 +123,32 @@ export async function updatePipelineRunSteps(runId: number, steps: PipelineStep[
   return normalizeRun(run);
 }
 
+export async function appendPipelineRunLog(
+  runId: number,
+  entry: PipelineLogEntry,
+) {
+  const current = await prisma.pipelineRun.findUnique({
+    where: { id: runId },
+    select: { logsJson: true },
+  });
+
+  if (!current) {
+    return null;
+  }
+
+  const logs = parseJson<PipelineLogEntry[]>(current.logsJson, []);
+  logs.push(entry);
+
+  const run = await prisma.pipelineRun.update({
+    where: { id: runId },
+    data: {
+      logsJson: serializeJson(logs.slice(-200)),
+    },
+  });
+
+  return normalizeRun(run);
+}
+
 export async function completePipelineRun(runId: number, steps: PipelineStep[], summary: PipelineSummary) {
   const run = await prisma.pipelineRun.update({
     where: { id: runId },
@@ -115,6 +158,7 @@ export async function completePipelineRun(runId: number, steps: PipelineStep[], 
       summaryJson: serializeJson(summary),
       finishedAt: new Date(),
       error: null,
+      cancelRequested: false,
     },
   });
 
@@ -135,10 +179,62 @@ export async function failPipelineRun(
       summaryJson: summary ? serializeJson(summary) : null,
       error,
       finishedAt: new Date(),
+      cancelRequested: false,
     },
   });
 
   return normalizeRun(run);
+}
+
+export async function cancelPipelineRun(runId: number) {
+  const run = await prisma.pipelineRun.update({
+    where: { id: runId },
+    data: {
+      cancelRequested: true,
+    },
+  });
+
+  return normalizeRun(run);
+}
+
+export async function forceReleasePipelineRun(runId: number) {
+  const run = await prisma.pipelineRun.update({
+    where: { id: runId },
+    data: {
+      status: PipelineRunStatus.failed,
+      cancelRequested: false,
+      finishedAt: new Date(),
+      error: "Force released from admin",
+    },
+  });
+
+  return normalizeRun(run);
+}
+
+export async function cancelCompletedPipelineRun(runId: number, steps: PipelineStep[]) {
+  const run = await prisma.pipelineRun.update({
+    where: { id: runId },
+    data: {
+      status: PipelineRunStatus.canceled,
+      stepsJson: serializeJson(steps),
+      finishedAt: new Date(),
+      cancelRequested: false,
+      error: "Canceled from admin",
+    },
+  });
+
+  return normalizeRun(run);
+}
+
+export async function getPipelineRunRuntime(runId: number) {
+  return prisma.pipelineRun.findUnique({
+    where: { id: runId },
+    select: {
+      id: true,
+      status: true,
+      cancelRequested: true,
+    },
+  });
 }
 
 export async function getLatestPipelineRun() {
@@ -150,11 +246,15 @@ export async function getLatestPipelineRun() {
     return null;
   }
 
-  const run = await prisma.pipelineRun.findFirst({
-    orderBy: {
-      startedAt: "desc",
-    },
-  });
+  try {
+    const run = await prisma.pipelineRun.findFirst({
+      orderBy: {
+        startedAt: "desc",
+      },
+    });
 
-  return run ? normalizeRun(run) : null;
+    return run ? normalizeRun(run) : null;
+  } catch {
+    return null;
+  }
 }
