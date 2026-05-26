@@ -1,0 +1,234 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+  schemas  = ["trend_maker"]
+}
+
+enum SourceKind {
+  community
+  forum
+  aggregation
+
+  @@schema("trend_maker")
+}
+
+enum SourceStatus {
+  active
+  review
+  paused
+
+  @@schema("trend_maker")
+}
+
+enum KeywordLevel {
+  primary
+  secondary
+  tertiary
+
+  @@schema("trend_maker")
+}
+
+enum KeywordStatus {
+  new
+  tracking
+  analyzed
+  blocked
+
+  @@schema("trend_maker")
+}
+
+enum GeneratedPageStatus {
+  draft
+  ready
+  published
+
+  @@schema("trend_maker")
+}
+
+enum HubStatus {
+  draft
+  ready
+  published
+
+  @@schema("trend_maker")
+}
+
+model Source {
+  id                 Int           @id @default(autoincrement())
+  externalId         String        @unique
+  name               String
+  url                String        @unique
+  kind               SourceKind
+  category           String
+  region             String
+  language           String
+  crawlIntervalHours Int
+  trustScore         Int
+  status             SourceStatus  @default(active)
+  notes              String
+  lastCrawledAt      DateTime?
+  lastCrawlStatus    String?
+  lastCrawlMethod    String?
+  lastCrawlDetail    String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  rawDocuments       RawDocument[]
+
+  @@schema("trend_maker")
+}
+
+model RawDocument {
+  id           Int       @id @default(autoincrement())
+  sourceId     Int
+  url          String
+  title        String?
+  content      String
+  contentHash  String?   @unique
+  publishedAt  DateTime?
+  crawledAt    DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  source       Source    @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceId, url])
+  @@index([sourceId, crawledAt])
+  @@schema("trend_maker")
+}
+
+model Keyword {
+  id                  Int               @id @default(autoincrement())
+  text                String
+  normalizedText      String            @unique
+  level               KeywordLevel
+  parentKeywordId     Int?
+  hubId               Int?
+  region              String
+  language            String
+  sourceLabel         String?
+  sourceIdsRaw        String?
+  isManual            Boolean           @default(false)
+  pinned              Boolean           @default(false)
+  pinnedAt            DateTime?
+  firstSeenAt         DateTime          @default(now())
+  lastSeenAt          DateTime          @default(now())
+  status              KeywordStatus     @default(new)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  parentKeyword       Keyword?          @relation("KeywordParentChild", fields: [parentKeywordId], references: [id], onDelete: SetNull)
+  hub                 Hub?              @relation(fields: [hubId], references: [id], onDelete: SetNull)
+  childKeywords       Keyword[]         @relation("KeywordParentChild")
+  metrics             KeywordMetric[]
+  analyses            KeywordAnalysis[]
+  suggestResults      KeywordSuggestResult[] @relation("KeywordSuggestParent")
+  suggestedBy         KeywordSuggestResult[] @relation("KeywordSuggestChild")
+  generatedPages      GeneratedPage[]
+  primaryForHubs      Hub[]               @relation("HubPrimaryKeyword")
+  representativeForHubs Hub[]           @relation("HubRepresentativeKeyword")
+
+  @@schema("trend_maker")
+}
+
+model KeywordMetric {
+  id               Int      @id @default(autoincrement())
+  keywordId        Int
+  metricDate       DateTime
+  frequencyScore   Float    @default(0)
+  trendScore       Float    @default(0)
+  sourceCount      Int      @default(0)
+  suggestScore     Float    @default(0)
+  commercialScore  Float    @default(0)
+  opportunityScore Float    @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  keyword          Keyword  @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+
+  @@unique([keywordId, metricDate])
+  @@schema("trend_maker")
+}
+
+model KeywordAnalysis {
+  id                 Int      @id @default(autoincrement())
+  keywordId          Int
+  intent             String?
+  summary            String?
+  relatedKeywordsRaw String?
+  faqRaw             String?
+  snippetTitle       String?
+  snippetDescription String?
+  model              String?
+  generatedAt        DateTime @default(now())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  keyword            Keyword  @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+
+  @@index([keywordId, generatedAt])
+  @@schema("trend_maker")
+}
+
+model KeywordSuggestResult {
+  id                Int      @id @default(autoincrement())
+  parentKeywordId   Int
+  suggestedKeywordId Int
+  provider          String
+  rank              Int
+  query             String
+  fetchedAt         DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  parentKeyword     Keyword  @relation("KeywordSuggestParent", fields: [parentKeywordId], references: [id], onDelete: Cascade)
+  suggestedKeyword  Keyword  @relation("KeywordSuggestChild", fields: [suggestedKeywordId], references: [id], onDelete: Cascade)
+
+  @@unique([parentKeywordId, suggestedKeywordId, provider])
+  @@index([parentKeywordId, fetchedAt])
+  @@schema("trend_maker")
+}
+
+model GeneratedPage {
+  id                  Int                 @id @default(autoincrement())
+  keywordId           Int
+  hubId               Int?                @unique
+  slug                String              @unique
+  title               String
+  description         String
+  h1                  String
+  summary             String
+  faqRaw              String?
+  relatedKeywordsRaw  String?
+  canonicalPath       String
+  status              GeneratedPageStatus @default(draft)
+  lastGeneratedAt     DateTime            @default(now())
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  keyword             Keyword             @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+  hub                 Hub?                @relation(fields: [hubId], references: [id], onDelete: SetNull)
+
+  @@unique([keywordId])
+  @@index([status, lastGeneratedAt])
+  @@schema("trend_maker")
+}
+
+model Hub {
+  id                    Int                 @id @default(autoincrement())
+  slug                  String              @unique
+  name                  String
+  normalizedName        String              @unique
+  summary               String?
+  primaryKeywordId      Int?
+  representativeKeywordId Int?
+  status                HubStatus           @default(draft)
+  lastComputedAt        DateTime            @default(now())
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  primaryKeyword        Keyword?            @relation("HubPrimaryKeyword", fields: [primaryKeywordId], references: [id], onDelete: SetNull)
+  representativeKeyword Keyword?            @relation("HubRepresentativeKeyword", fields: [representativeKeywordId], references: [id], onDelete: SetNull)
+  secondaryKeywords     Keyword[]
+  generatedPage         GeneratedPage?
+
+  @@index([status, lastComputedAt])
+  @@schema("trend_maker")
+}

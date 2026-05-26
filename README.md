@@ -28,10 +28,10 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-Initialize the local database:
+Initialize the database:
 
 ```bash
-npm run db:migrate -- --name init
+npm run db:migrate
 npm run db:seed
 ```
 
@@ -69,19 +69,29 @@ npm run verify:pages
 
 ### Production database
 
-Do not deploy the current SQLite database to Vercel for live traffic. Use a managed Postgres
-database such as Supabase and set `DATABASE_URL` to the production connection string.
+Use a managed Postgres database such as Supabase.
 
-Recommended production switch:
+Recommended Prisma wiring on Supabase:
+
+- `DATABASE_URL`: transaction-mode pooler for runtime
+- `DIRECT_URL`: session-mode pooler for schema sync / migrations
+- use a dedicated Postgres schema for this app, for example `trend_maker`
+
+Current production bootstrap:
 
 1. Create a Supabase project.
-2. Copy the pooled or direct Postgres connection string.
-3. Set `DATABASE_URL` in Vercel Project Settings.
-4. Run production migrations with:
+2. Copy the transaction pooler and session pooler connection strings from Supabase.
+3. Append `?schema=trend_maker` to both URLs.
+4. Set `DATABASE_URL` and `DIRECT_URL` in Vercel Project Settings.
+5. Sync the production schema with:
 
 ```bash
 npm run db:migrate:deploy
 ```
+
+At the moment this script uses `prisma db push` because the repository originally started on
+SQLite during local prototyping. After the schema stabilizes further, you can re-baseline Prisma
+migrations for a pure Postgres migration history.
 
 ### Required Vercel environment variables
 
@@ -89,6 +99,7 @@ Set these in Vercel Project Settings before the first production deployment:
 
 ```bash
 DATABASE_URL=postgresql://...
+DIRECT_URL=postgresql://...
 NEXT_PUBLIC_SITE_URL=https://your-domain.com
 OPENAI_API_KEY=...
 OPENAI_MODEL=gpt-5.4

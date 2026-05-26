@@ -6,10 +6,23 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "postinstall": "prisma generate",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma db push",
+    "db:migrate:deploy": "prisma db push",
+    "db:push": "prisma db push",
+    "db:seed": "node prisma/seed.mjs",
+    "verify:primary": "node --import tsx ./scripts/verify-primary-keywords.ts",
+    "verify:secondary": "node --import tsx ./scripts/verify-secondary-keywords.ts",
+    "verify:analysis": "node --import tsx ./scripts/verify-keyword-analysis.ts",
+    "verify:pages": "node --import tsx ./scripts/verify-generated-pages.ts"
   },
   "dependencies": {
+    "@prisma/client": "^6.19.0",
+    "cheerio": "^1.2.0",
     "next": "16.2.6",
+    "playwright-core": "^1.60.0",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
@@ -20,7 +33,10 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
+    "prisma": "^6.19.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "tsx": "^4.22.3",
+    "typescript": "^5",
+    "vercel": "^54.4.1"
   }
 }
