@@ -76,7 +76,7 @@ export function PipelinePanel({
     }, 2000);
   }
 
-  async function handleRun() {
+  async function handleRun(startFrom?: PipelineStep["id"]) {
     setIsSubmitting(true);
     setMessage(null);
     startPolling();
@@ -87,7 +87,7 @@ export function PipelinePanel({
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify(startFrom ? { startFrom } : {}),
       });
       const payload = (await response.json()) as { ok: boolean; error?: string };
       const latestRun = await fetchLatestRun();
@@ -127,7 +127,7 @@ export function PipelinePanel({
           className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
           type="button"
           disabled={isSubmitting || run?.status === "running"}
-          onClick={handleRun}
+          onClick={() => handleRun()}
         >
           {run?.status === "running" || isSubmitting ? "Pipeline Running..." : "Run Full Pipeline"}
         </button>
@@ -171,6 +171,18 @@ export function PipelinePanel({
                 {step.error ? (
                   <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
                     {step.error}
+                  </div>
+                ) : null}
+                {run.status !== "running" && step.status !== "completed" ? (
+                  <div className="mt-4">
+                    <button
+                      className="rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-semibold text-slate-800 transition-colors hover:bg-stone-100 disabled:cursor-not-allowed disabled:text-slate-400"
+                      type="button"
+                      disabled={isSubmitting}
+                      onClick={() => handleRun(step.id)}
+                    >
+                      Resume From Here
+                    </button>
                   </div>
                 ) : null}
               </article>

@@ -11,6 +11,14 @@ export async function POST(request: Request) {
           maxSecondaryAnalyses?: number;
           limitPerPrimary?: number;
           publishEligible?: boolean;
+          startFrom?:
+            | "ingest"
+            | "primary"
+            | "secondary"
+            | "analysis"
+            | "hubs"
+            | "pages"
+            | "publish";
         }
       | null;
 
@@ -20,6 +28,7 @@ export async function POST(request: Request) {
       maxSecondaryAnalyses: body?.maxSecondaryAnalyses,
       limitPerPrimary: body?.limitPerPrimary,
       publishEligible: body?.publishEligible,
+      startFrom: body?.startFrom,
     });
 
     return NextResponse.json({

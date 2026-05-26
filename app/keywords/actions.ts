@@ -18,6 +18,7 @@ export async function updateKeywordPinnedAction(formData: FormData) {
 
   await setKeywordPinned(keywordId, pinned);
   revalidatePath("/");
+  revalidatePath("/admin");
   revalidatePath("/keywords");
 }
 
@@ -30,6 +31,7 @@ export async function createManualPrimaryKeywordAction(formData: FormData) {
 
   await createManualPrimaryKeyword(text);
   revalidatePath("/");
+  revalidatePath("/admin");
   revalidatePath("/keywords");
 }
 
@@ -42,5 +44,6 @@ export async function deleteManualPrimaryKeywordAction(formData: FormData) {
 
   await deleteManualPrimaryKeyword(keywordId);
   revalidatePath("/");
+  revalidatePath("/admin");
   revalidatePath("/keywords");
 }

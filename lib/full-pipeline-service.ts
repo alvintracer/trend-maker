@@ -18,6 +18,15 @@ import { publishGeneratedPage, publishHub } from "@/lib/publish-service";
 import { generateSecondaryKeywordsForPrimaryKeywords } from "@/lib/secondary-keyword-service";
 
 const DEFAULT_SOURCE_IDS = ["dcinside", "fmkorea", "mlbpark", "dogdrip"] as const;
+const STAGE_ORDER: PipelineStep["id"][] = [
+  "ingest",
+  "primary",
+  "secondary",
+  "analysis",
+  "hubs",
+  "pages",
+  "publish",
+];
 
 type FullPipelineOptions = {
   sourceIds?: string[];
@@ -25,6 +34,7 @@ type FullPipelineOptions = {
   maxSecondaryAnalyses?: number;
   limitPerPrimary?: number;
   publishEligible?: boolean;
+  startFrom?: PipelineStep["id"];
 };
 
 type IngestionSuccess = {
@@ -51,24 +61,20 @@ type FullPipelineHooks = {
   onStageUpdate?: (update: StageUpdate) => Promise<void> | void;
 };
 
+type KeywordWithMetrics = {
+  id: number;
+  text: string;
+  pinned: boolean;
+  pinnedAt: Date | null;
+  lastSeenAt: Date;
+  metrics: Array<{ opportunityScore: number }>;
+};
+
 function getOpenAIConfigured() {
   return Boolean(process.env.OPENAI_API_KEY);
 }
 
-function compareKeywordPriority(
-  left: {
-    pinned: boolean;
-    pinnedAt: Date | null;
-    lastSeenAt: Date;
-    metrics: Array<{ opportunityScore: number }>;
-  },
-  right: {
-    pinned: boolean;
-    pinnedAt: Date | null;
-    lastSeenAt: Date;
-    metrics: Array<{ opportunityScore: number }>;
-  },
-) {
+function compareKeywordPriority(left: KeywordWithMetrics, right: KeywordWithMetrics) {
   if (left.pinned !== right.pinned) {
     return left.pinned ? -1 : 1;
   }
@@ -90,71 +96,12 @@ function compareKeywordPriority(
   return right.lastSeenAt.getTime() - left.lastSeenAt.getTime();
 }
 
-export async function runFullPipeline(
-  options: FullPipelineOptions = {},
-  hooks: FullPipelineHooks = {},
-) {
-  const sourceIds = options.sourceIds?.length ? options.sourceIds : [...DEFAULT_SOURCE_IDS];
-  const maxPrimaryKeywords = options.maxPrimaryKeywords ?? 8;
-  const maxSecondaryAnalyses = options.maxSecondaryAnalyses ?? 24;
-  const limitPerPrimary = options.limitPerPrimary ?? 10;
-  const publishEligible = options.publishEligible ?? true;
-  const notify = async (update: StageUpdate) => {
-    await hooks.onStageUpdate?.(update);
-  };
-
-  const ingestion: Array<IngestionSuccess | IngestionFailure> = [];
-  await notify({
-    stepId: "ingest",
-    status: "running",
-  });
-
-  for (const sourceId of sourceIds) {
-    try {
-      const result = await ingestSource(sourceId);
-      ingestion.push({
-        ok: true,
-        sourceId,
-        fetchedCount: result.fetchedCount,
-        storedCount: result.storedCount,
-        method: result.method,
-      });
-    } catch (error) {
-      ingestion.push({
-        ok: false,
-        sourceId,
-        error: error instanceof Error ? error.message : "Unknown ingestion error",
-      });
-    }
-  }
-
-  const successfulSourceIds = ingestion
-    .filter((entry): entry is IngestionSuccess => entry.ok)
-    .map((entry) => entry.sourceId);
-
-  if (successfulSourceIds.length === 0) {
-    throw new Error("Full pipeline aborted: no source ingestion succeeded");
-  }
-
-  await notify({
-    stepId: "ingest",
-    status: "completed",
-    summary: `${successfulSourceIds.length}/${ingestion.length} sources ingested`,
-  });
-
-  await notify({
-    stepId: "primary",
-    status: "running",
-  });
-  const primaryResult = await generatePrimaryKeywordsForSources(successfulSourceIds);
-  const primaryKeywords = await prisma.keyword.findMany({
+async function getReusablePrimaryKeywords(limit: number) {
+  const keywords = await prisma.keyword.findMany({
     where: {
       level: KeywordLevel.primary,
       status: {
         in: [KeywordStatus.tracking, KeywordStatus.analyzed],
-      },
-      normalizedText: {
-        in: primaryResult.keywords.map((keyword) => keyword.normalizedText),
       },
     },
     include: {
@@ -165,36 +112,18 @@ export async function runFullPipeline(
         take: 1,
       },
     },
+    take: 200,
   });
 
-  const selectedPrimaryKeywords = primaryKeywords
-    .sort(compareKeywordPriority)
-    .slice(0, maxPrimaryKeywords);
-  const selectedPrimaryKeywordIds = selectedPrimaryKeywords.map((keyword) => keyword.id);
+  return keywords.sort(compareKeywordPriority).slice(0, limit);
+}
 
-  if (selectedPrimaryKeywordIds.length === 0) {
-    throw new Error("Full pipeline aborted: no eligible primary keywords found");
-  }
-
-  await notify({
-    stepId: "primary",
-    status: "completed",
-    summary: `${selectedPrimaryKeywordIds.length} primary keywords selected`,
-  });
-
-  await notify({
-    stepId: "secondary",
-    status: "running",
-  });
-  const secondaryResult = await generateSecondaryKeywordsForPrimaryKeywords(
-    selectedPrimaryKeywordIds,
-    limitPerPrimary,
-  );
-  const secondaryKeywords = await prisma.keyword.findMany({
+async function getReusableSecondaryKeywords(primaryKeywordIds: number[], limit: number) {
+  const keywords = await prisma.keyword.findMany({
     where: {
       level: KeywordLevel.secondary,
       parentKeywordId: {
-        in: selectedPrimaryKeywordIds,
+        in: primaryKeywordIds,
       },
       status: {
         in: [KeywordStatus.tracking, KeywordStatus.analyzed],
@@ -214,18 +143,58 @@ export async function runFullPipeline(
         take: 1,
       },
     },
+    take: 300,
   });
 
-  const selectedSecondaryKeywords = secondaryKeywords
-    .sort(compareKeywordPriority)
-    .slice(0, maxSecondaryAnalyses);
-  const selectedSecondaryKeywordIds = selectedSecondaryKeywords.map((keyword) => keyword.id);
+  return keywords.sort(compareKeywordPriority).slice(0, limit);
+}
 
-  await notify({
-    stepId: "secondary",
-    status: "completed",
-    summary: `${selectedSecondaryKeywordIds.length} secondary keywords selected`,
-  });
+export async function runFullPipeline(
+  options: FullPipelineOptions = {},
+  hooks: FullPipelineHooks = {},
+) {
+  const sourceIds = options.sourceIds?.length ? options.sourceIds : [...DEFAULT_SOURCE_IDS];
+  const maxPrimaryKeywords = options.maxPrimaryKeywords ?? 8;
+  const maxSecondaryAnalyses = options.maxSecondaryAnalyses ?? 24;
+  const limitPerPrimary = options.limitPerPrimary ?? 10;
+  const publishEligible = options.publishEligible ?? true;
+  const startFrom = options.startFrom ?? "ingest";
+  const startIndex = Math.max(0, STAGE_ORDER.indexOf(startFrom));
+  const shouldRunStage = (stepId: PipelineStep["id"]) =>
+    STAGE_ORDER.indexOf(stepId) >= startIndex;
+  const notify = async (update: StageUpdate) => {
+    await hooks.onStageUpdate?.(update);
+  };
+
+  const ingestion: Array<IngestionSuccess | IngestionFailure> = [];
+  let successfulSourceIds = [...sourceIds];
+  let selectedPrimaryKeywords: Array<KeywordWithMetrics & { normalizedText?: string }> = [];
+  let selectedPrimaryKeywordIds: number[] = [];
+  let selectedSecondaryKeywords: Array<
+    KeywordWithMetrics & { analyses: Array<{ generatedAt: Date }> }
+  > = [];
+  let selectedSecondaryKeywordIds: number[] = [];
+  let analyzedSecondaryIds: number[] = [];
+
+  let primaryResult:
+    | Awaited<ReturnType<typeof generatePrimaryKeywordsForSources>>
+    | {
+        sourceIds: string[];
+        sourceCount: number;
+        documentCount: number;
+        keywordCount: number;
+        keywords: Array<{ normalizedText: string }>;
+      };
+
+  let secondaryResult:
+    | Awaited<ReturnType<typeof generateSecondaryKeywordsForPrimaryKeywords>>
+    | {
+        parentKeywordCount: number;
+        secondaryKeywordCount: number;
+        acceptedSecondaryKeywordCount: number;
+        blockedSecondaryKeywordCount: number;
+        failedQueryCount: number;
+      };
 
   let analysisResult:
     | {
@@ -237,33 +206,192 @@ export async function runFullPipeline(
         reason: string;
       };
 
-  await notify({
-    stepId: "analysis",
-    status: "running",
-  });
+  if (shouldRunStage("ingest")) {
+    await notify({ stepId: "ingest", status: "running" });
 
-  if (!getOpenAIConfigured()) {
-    analysisResult = {
-      skipped: true,
-      reason: "OPENAI_API_KEY is not configured",
-    };
-  } else if (selectedSecondaryKeywordIds.length === 0) {
-    analysisResult = {
-      skipped: true,
-      reason: "No eligible secondary keywords found",
-    };
+    for (const sourceId of sourceIds) {
+      try {
+        const result = await ingestSource(sourceId);
+        ingestion.push({
+          ok: true,
+          sourceId,
+          fetchedCount: result.fetchedCount,
+          storedCount: result.storedCount,
+          method: result.method,
+        });
+      } catch (error) {
+        ingestion.push({
+          ok: false,
+          sourceId,
+          error: error instanceof Error ? error.message : "Unknown ingestion error",
+        });
+      }
+    }
+
+    successfulSourceIds = ingestion
+      .filter((entry): entry is IngestionSuccess => entry.ok)
+      .map((entry) => entry.sourceId);
+
+    if (successfulSourceIds.length === 0) {
+      throw new Error("Full pipeline aborted: no source ingestion succeeded");
+    }
+
+    await notify({
+      stepId: "ingest",
+      status: "completed",
+      summary: `${successfulSourceIds.length}/${ingestion.length} sources ingested`,
+    });
   } else {
-    analysisResult = await generateKeywordAnalysesForKeywords(selectedSecondaryKeywordIds);
+    await notify({
+      stepId: "ingest",
+      status: "skipped",
+      summary: "Skipped ingestion and reused existing raw documents",
+    });
   }
 
-  await notify({
-    stepId: "analysis",
-    status: "skipped" in analysisResult ? "skipped" : "completed",
-    summary:
-      "skipped" in analysisResult
-        ? analysisResult.reason
-        : `${analysisResult.analyzedCount} keywords analyzed`,
-  });
+  if (shouldRunStage("primary")) {
+    await notify({ stepId: "primary", status: "running" });
+
+    primaryResult = await generatePrimaryKeywordsForSources(successfulSourceIds);
+    const primaryKeywords = await prisma.keyword.findMany({
+      where: {
+        level: KeywordLevel.primary,
+        status: {
+          in: [KeywordStatus.tracking, KeywordStatus.analyzed],
+        },
+        normalizedText: {
+          in: primaryResult.keywords.map((keyword) => keyword.normalizedText),
+        },
+      },
+      include: {
+        metrics: {
+          orderBy: {
+            metricDate: "desc",
+          },
+          take: 1,
+        },
+      },
+    });
+
+    selectedPrimaryKeywords = primaryKeywords
+      .sort(compareKeywordPriority)
+      .slice(0, maxPrimaryKeywords);
+    selectedPrimaryKeywordIds = selectedPrimaryKeywords.map((keyword) => keyword.id);
+
+    if (selectedPrimaryKeywordIds.length === 0) {
+      throw new Error("Full pipeline aborted: no eligible primary keywords found");
+    }
+
+    await notify({
+      stepId: "primary",
+      status: "completed",
+      summary: `${selectedPrimaryKeywordIds.length} primary keywords selected`,
+    });
+  } else {
+    selectedPrimaryKeywords = await getReusablePrimaryKeywords(maxPrimaryKeywords);
+    selectedPrimaryKeywordIds = selectedPrimaryKeywords.map((keyword) => keyword.id);
+
+    if (selectedPrimaryKeywordIds.length === 0) {
+      throw new Error("No reusable primary keywords found to resume the pipeline");
+    }
+
+    primaryResult = {
+      sourceIds: successfulSourceIds,
+      sourceCount: successfulSourceIds.length,
+      documentCount: 0,
+      keywordCount: selectedPrimaryKeywordIds.length,
+      keywords: selectedPrimaryKeywords.map((keyword) => ({
+        normalizedText: keyword.text,
+      })),
+    };
+
+    await notify({
+      stepId: "primary",
+      status: "skipped",
+      summary: `${selectedPrimaryKeywordIds.length} existing primary keywords reused`,
+    });
+  }
+
+  if (shouldRunStage("secondary")) {
+    await notify({ stepId: "secondary", status: "running" });
+
+    secondaryResult = await generateSecondaryKeywordsForPrimaryKeywords(
+      selectedPrimaryKeywordIds,
+      limitPerPrimary,
+    );
+    selectedSecondaryKeywords = await getReusableSecondaryKeywords(
+      selectedPrimaryKeywordIds,
+      maxSecondaryAnalyses,
+    );
+    selectedSecondaryKeywordIds = selectedSecondaryKeywords.map((keyword) => keyword.id);
+
+    await notify({
+      stepId: "secondary",
+      status: "completed",
+      summary: `${selectedSecondaryKeywordIds.length} secondary keywords selected`,
+    });
+  } else {
+    selectedSecondaryKeywords = await getReusableSecondaryKeywords(
+      selectedPrimaryKeywordIds,
+      maxSecondaryAnalyses,
+    );
+    selectedSecondaryKeywordIds = selectedSecondaryKeywords.map((keyword) => keyword.id);
+
+    if (selectedSecondaryKeywordIds.length === 0) {
+      throw new Error("No reusable secondary keywords found to resume the pipeline");
+    }
+
+    secondaryResult = {
+      parentKeywordCount: selectedPrimaryKeywordIds.length,
+      secondaryKeywordCount: selectedSecondaryKeywordIds.length,
+      acceptedSecondaryKeywordCount: selectedSecondaryKeywordIds.length,
+      blockedSecondaryKeywordCount: 0,
+      failedQueryCount: 0,
+    };
+
+    await notify({
+      stepId: "secondary",
+      status: "skipped",
+      summary: `${selectedSecondaryKeywordIds.length} existing secondary keywords reused`,
+    });
+  }
+
+  if (shouldRunStage("analysis")) {
+    await notify({ stepId: "analysis", status: "running" });
+
+    if (!getOpenAIConfigured()) {
+      analysisResult = {
+        skipped: true,
+        reason: "OPENAI_API_KEY is not configured",
+      };
+    } else if (selectedSecondaryKeywordIds.length === 0) {
+      analysisResult = {
+        skipped: true,
+        reason: "No eligible secondary keywords found",
+      };
+    } else {
+      analysisResult = await generateKeywordAnalysesForKeywords(selectedSecondaryKeywordIds);
+    }
+
+    await notify({
+      stepId: "analysis",
+      status: "skipped" in analysisResult ? "skipped" : "completed",
+      summary:
+        "skipped" in analysisResult
+          ? analysisResult.reason
+          : `${analysisResult.analyzedCount} keywords analyzed`,
+    });
+  } else {
+    analysisResult = {
+      skipped: true,
+      reason: "Existing analyzed keywords reused",
+    };
+    await notify({
+      stepId: "analysis",
+      status: "skipped",
+      summary: analysisResult.reason,
+    });
+  }
 
   const analyzedSecondaryKeywords = await prisma.keyword.findMany({
     where: {
@@ -278,48 +406,69 @@ export async function runFullPipeline(
     },
     select: {
       id: true,
-      hubId: true,
     },
   });
-  const analyzedSecondaryIds = analyzedSecondaryKeywords.map((keyword) => keyword.id);
+  analyzedSecondaryIds = analyzedSecondaryKeywords.map((keyword) => keyword.id);
 
-  await notify({
-    stepId: "hubs",
-    status: "running",
-  });
+  if (shouldRunStage("hubs")) {
+    await notify({ stepId: "hubs", status: "running" });
+  } else {
+    await notify({
+      stepId: "hubs",
+      status: "skipped",
+      summary: "Existing hub clusters reused",
+    });
+  }
+
   const hubResult =
-    analyzedSecondaryIds.length > 0
+    shouldRunStage("hubs") && analyzedSecondaryIds.length > 0
       ? await clusterSecondaryKeywords(analyzedSecondaryIds)
       : { hubCount: 0, mappedKeywordCount: 0 };
 
-  await notify({
-    stepId: "hubs",
-    status: "completed",
-    summary: `${hubResult.hubCount} hubs materialized`,
-  });
+  if (shouldRunStage("hubs")) {
+    await notify({
+      stepId: "hubs",
+      status: "completed",
+      summary: `${hubResult.hubCount} hubs materialized`,
+    });
+  }
 
-  await notify({
-    stepId: "pages",
-    status: "running",
-  });
+  if (shouldRunStage("pages")) {
+    await notify({ stepId: "pages", status: "running" });
+  } else {
+    await notify({
+      stepId: "pages",
+      status: "skipped",
+      summary: "Existing generated pages reused",
+    });
+  }
+
   const pageResult =
-    analyzedSecondaryIds.length > 0
+    shouldRunStage("pages") && analyzedSecondaryIds.length > 0
       ? await generatePagesForKeywords(analyzedSecondaryIds)
       : { requestedCount: 0, generatedCount: 0 };
 
-  await notify({
-    stepId: "pages",
-    status: "completed",
-    summary: `${pageResult.generatedCount} pages generated`,
-  });
+  if (shouldRunStage("pages")) {
+    await notify({
+      stepId: "pages",
+      status: "completed",
+      summary: `${pageResult.generatedCount} pages generated`,
+    });
+  }
 
   const publishResults = [];
-  await notify({
-    stepId: "publish",
-    status: "running",
-  });
 
-  if (publishEligible && analyzedSecondaryIds.length > 0) {
+  if (shouldRunStage("publish")) {
+    await notify({ stepId: "publish", status: "running" });
+  } else {
+    await notify({
+      stepId: "publish",
+      status: "skipped",
+      summary: "Publish step not re-run",
+    });
+  }
+
+  if (shouldRunStage("publish") && publishEligible && analyzedSecondaryIds.length > 0) {
     const generatedPages = await prisma.generatedPage.findMany({
       where: {
         keywordId: {
@@ -367,14 +516,17 @@ export async function runFullPipeline(
     }
   }
 
-  await notify({
-    stepId: "publish",
-    status: publishResults.some((entry) => !entry.ok) ? "failed" : "completed",
-    summary: `${publishResults.filter((entry) => entry.ok).length} published, ${publishResults.filter((entry) => !entry.ok).length} failed`,
-  });
+  if (shouldRunStage("publish")) {
+    await notify({
+      stepId: "publish",
+      status: publishResults.some((entry) => !entry.ok) ? "failed" : "completed",
+      summary: `${publishResults.filter((entry) => entry.ok).length} published, ${publishResults.filter((entry) => !entry.ok).length} failed`,
+    });
+  }
 
   return {
     sourceIds,
+    startFrom,
     ingestion,
     primary: {
       ...primaryResult,
@@ -402,15 +554,14 @@ export async function runTrackedFullPipeline(options: FullPipelineOptions = {}) 
   const sourceIds = options.sourceIds?.length ? options.sourceIds : [...DEFAULT_SOURCE_IDS];
   const run = await createPipelineRun(sourceIds);
   const steps = createInitialPipelineSteps();
+  const startFrom = options.startFrom ?? "ingest";
+  const startIndex = Math.max(0, STAGE_ORDER.indexOf(startFrom));
 
   async function syncSteps() {
     await updatePipelineRunSteps(run.id, steps);
   }
 
-  function updateStep(
-    stepId: PipelineStep["id"],
-    patch: Partial<PipelineStep>,
-  ) {
+  function updateStep(stepId: PipelineStep["id"], patch: Partial<PipelineStep>) {
     const target = steps.find((step) => step.id === stepId);
 
     if (!target) {
@@ -418,6 +569,18 @@ export async function runTrackedFullPipeline(options: FullPipelineOptions = {}) 
     }
 
     Object.assign(target, patch);
+  }
+
+  if (startIndex > 0) {
+    const skippedAt = new Date().toISOString();
+
+    for (const step of steps.slice(0, startIndex)) {
+      step.status = "skipped";
+      step.summary = "Reused previous successful stage output";
+      step.finishedAt = skippedAt;
+    }
+
+    await syncSteps();
   }
 
   try {
@@ -430,9 +593,7 @@ export async function runTrackedFullPipeline(options: FullPipelineOptions = {}) 
           status: update.status,
           summary: update.summary,
           startedAt:
-            update.status === "running"
-              ? current?.startedAt ?? now
-              : current?.startedAt,
+            update.status === "running" ? current?.startedAt ?? now : current?.startedAt,
           finishedAt:
             update.status === "completed" ||
             update.status === "failed" ||

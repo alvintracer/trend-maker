@@ -3,7 +3,11 @@ import Link from "next/link";
 
 import { updateAdSlotEnabledAction } from "@/app/admin/ad-actions";
 import { PipelinePanel } from "@/components/admin/pipeline-panel";
-import { updateKeywordPinnedAction } from "@/app/keywords/actions";
+import {
+  createManualPrimaryKeywordAction,
+  deleteManualPrimaryKeywordAction,
+  updateKeywordPinnedAction,
+} from "@/app/keywords/actions";
 import { getAdSlotSettingsMap } from "@/lib/ad-settings";
 import { adSlotDefinitions } from "@/lib/adsterra";
 import { getLatestPipelineRun } from "@/lib/pipeline-run";
@@ -82,6 +86,64 @@ export default async function AdminPage() {
         </section>
 
         <PipelinePanel initialRun={latestPipelineRun} />
+
+        <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight">Manual Primary Keywords</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Seed priority topics before the first crawl. These are available from stage 0.
+              </p>
+            </div>
+            <form action={createManualPrimaryKeywordAction} className="flex flex-wrap gap-3">
+              <input
+                type="text"
+                name="text"
+                placeholder="예: 대선 토론, 아이폰 18"
+                className="min-w-[240px] rounded-full border border-black/10 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition-colors focus:border-slate-400"
+              />
+              <button
+                className="rounded-full bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
+                type="submit"
+              >
+                Add Keyword
+              </button>
+            </form>
+          </div>
+
+          <div className="mt-5 grid gap-3 lg:grid-cols-2">
+            {pinnedKeywords.filter((keyword) => keyword.isManual).length > 0 ? (
+              pinnedKeywords
+                .filter((keyword) => keyword.isManual)
+                .map((keyword) => (
+                  <article
+                    key={keyword.id}
+                    className="rounded-2xl border border-black/8 bg-stone-50/80 px-4 py-4"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-base font-semibold text-slate-950">{keyword.text}</div>
+                        <div className="mt-1 text-xs text-slate-500">{keyword.normalizedText}</div>
+                      </div>
+                      <form action={deleteManualPrimaryKeywordAction}>
+                        <input type="hidden" name="keywordId" value={String(keyword.id)} />
+                        <button
+                          className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 transition-colors hover:bg-stone-100"
+                          type="submit"
+                        >
+                          Delete
+                        </button>
+                      </form>
+                    </div>
+                  </article>
+                ))
+            ) : (
+              <div className="rounded-2xl border border-dashed border-black/10 bg-stone-50/70 px-4 py-6 text-sm text-slate-500">
+                No manual primary keywords yet.
+              </div>
+            )}
+          </div>
+        </section>
 
         {pinnedKeywords.length > 0 ? (
           <section className="rounded-[28px] border border-black/10 bg-[#152218] p-6 text-white shadow-[0_16px_60px_rgba(24,32,22,0.22)]">
