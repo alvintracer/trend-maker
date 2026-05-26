@@ -228,7 +228,16 @@ export async function getPublishedGeneratedPages(limit = 5000) {
     },
     include: {
       hub: true,
-      keyword: true,
+      keyword: {
+        include: {
+          metrics: {
+            orderBy: {
+              metricDate: "desc",
+            },
+            take: 1,
+          },
+        },
+      },
     },
     orderBy: [{ updatedAt: "desc" }],
     take: limit,

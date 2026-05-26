@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+
+import { getSiteUrl } from "@/lib/site-url";
+
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,12 +16,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
+  metadataBase: new URL(getSiteUrl()),
   title: {
-    default: "Trend Maker",
-    template: "%s | Trend Maker",
+    default: "CommunityWikiKorea",
+    template: "%s | CommunityWikiKorea",
   },
-  description: "Korean community trend hubs and keyword intelligence workspace",
+  description: "한국 커뮤니티 실시간 트렌드 키워드와 허브 페이지를 모아보는 위키.",
 };
 
 export default function RootLayout({

@@ -173,7 +173,7 @@ export default async function KeywordsPage({ searchParams }: KeywordsPageProps) 
               href="/"
               className="rounded-full border border-black/10 bg-slate-950 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800"
             >
-              Back to Dashboard
+              Back to Home
             </Link>
           </div>
         </section>

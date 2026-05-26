@@ -2,16 +2,13 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { getGeneratedPageBySlug, parseGeneratedPageArray } from "@/lib/generated-page-service";
+import { getSiteUrl } from "@/lib/site-url";
 
 type KeywordDetailPageProps = {
   params: Promise<{
     slug: string;
   }>;
 };
-
-function getSiteUrl() {
-  return process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
-}
 
 export async function generateMetadata({
   params,
@@ -65,7 +62,7 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-10 lg:px-10">
         <section className="rounded-[28px] border border-black/10 bg-white/90 p-8 shadow-[0_24px_80px_rgba(63,63,38,0.12)]">
           <div className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-900">
-            Generated Keyword Page
+            CommunityWikiKorea Hub
           </div>
           <h1 className="mt-3 text-4xl font-semibold tracking-tight">{page.h1}</h1>
           <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">{page.summary}</p>
@@ -76,15 +73,15 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
           </div>
           {!isPublished ? (
             <div className="mt-5 rounded-2xl border border-amber-900/10 bg-amber-50/70 px-4 py-3 text-sm text-amber-900">
-              This page is not published for indexing yet. It remains visible for internal review
-              but is marked noindex.
+              This hub is still under review. It is visible directly by URL but remains excluded
+              from search indexing.
             </div>
           ) : null}
         </section>
 
         <section className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)]">
-            <h2 className="text-xl font-semibold tracking-tight">Snippet Draft</h2>
+            <h2 className="text-xl font-semibold tracking-tight">Overview</h2>
             <div className="mt-5 rounded-2xl border border-black/8 bg-stone-50/80 p-4">
               <div className="text-lg font-semibold text-sky-800">{page.title}</div>
               <div className="mt-2 text-sm text-emerald-800">{page.canonicalPath}</div>
@@ -94,7 +91,7 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
             {latestAnalysis ? (
               <div className="mt-6 rounded-2xl border border-black/8 bg-white p-4">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                  Search Intent
+                  Topic Snapshot
                 </div>
                 <div className="mt-2 text-sm font-semibold text-slate-900">
                   {latestAnalysis.intent || "Not set"}
@@ -126,7 +123,7 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
           </div>
 
           <div className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)]">
-            <h2 className="text-xl font-semibold tracking-tight">Tertiary Expansion</h2>
+            <h2 className="text-xl font-semibold tracking-tight">Related Searches</h2>
             <div className="mt-4 grid gap-3">
               {tertiaryKeywords.length > 0 ? (
                 tertiaryKeywords.map((keyword) => (
@@ -148,7 +145,7 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
         </section>
 
         <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)]">
-          <h2 className="text-xl font-semibold tracking-tight">FAQ Draft</h2>
+          <h2 className="text-xl font-semibold tracking-tight">Questions People Ask</h2>
           <div className="mt-4 grid gap-3">
             {faq.length > 0 ? (
               faq.map((question) => (
