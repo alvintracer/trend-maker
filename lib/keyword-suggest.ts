@@ -50,7 +50,7 @@ export async function fetchGoogleSuggestCandidates(
   parentKeywordId: number,
   query: string,
 ) {
-  const url = `https://suggestqueries.google.com/complete/search?client=chrome&hl=ko&q=${encodeURIComponent(
+  const url = `https://suggestqueries.google.com/complete/search?client=firefox&hl=ko&q=${encodeURIComponent(
     query,
   )}`;
   const response = await fetch(url, {
@@ -66,7 +66,17 @@ export async function fetchGoogleSuggestCandidates(
     throw new Error(`Google Suggest fetch failed: ${response.status}`);
   }
 
-  const payload = (await response.json()) as [string, string[]];
+  const rawText = await response.text();
+  let payload: [string, string[]];
+
+  try {
+    payload = JSON.parse(rawText) as [string, string[]];
+  } catch {
+    throw new Error(
+      `Google Suggest returned non-JSON for "${query}": ${rawText.slice(0, 120)}`,
+    );
+  }
+
   const suggestions = Array.isArray(payload?.[1]) ? payload[1] : [];
   const deduped = new Set<string>();
   const candidates: SecondaryKeywordCandidate[] = [];

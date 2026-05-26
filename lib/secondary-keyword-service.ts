@@ -70,10 +70,27 @@ export async function generateSecondaryKeywordsForPrimaryKeywords(
 
   const allCandidates: SecondaryKeywordCandidate[] = [];
   const parentKeywordsById = new Map(parentKeywords.map((keyword) => [keyword.id, keyword]));
+  const failedQueries: string[] = [];
 
   for (const parentKeyword of parentKeywords) {
-    const candidates = await fetchGoogleSuggestCandidates(parentKeyword.id, parentKeyword.text);
-    allCandidates.push(...candidates.slice(0, limitPerKeyword));
+    try {
+      const candidates = await fetchGoogleSuggestCandidates(parentKeyword.id, parentKeyword.text);
+      allCandidates.push(...candidates.slice(0, limitPerKeyword));
+    } catch (error) {
+      failedQueries.push(
+        `${parentKeyword.text}: ${error instanceof Error ? error.message : "Unknown suggest error"}`,
+      );
+    }
+  }
+
+  if (allCandidates.length === 0) {
+    throw new Error(
+      failedQueries.length > 0
+        ? `Secondary keyword generation failed for all parent keywords. ${failedQueries
+            .slice(0, 3)
+            .join(" | ")}`
+        : "No secondary keyword candidates returned from Google Suggest",
+    );
   }
 
   const touchedSecondaryKeywordIds = new Set<number>();
@@ -160,6 +177,7 @@ export async function generateSecondaryKeywordsForPrimaryKeywords(
     secondaryKeywordCount: allCandidates.length,
     acceptedSecondaryKeywordCount: evaluation.acceptedCount,
     blockedSecondaryKeywordCount: evaluation.blockedCount,
+    failedQueryCount: failedQueries.length,
   };
 }
 
