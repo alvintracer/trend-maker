@@ -2,10 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { updateAdSlotEnabledAction } from "@/app/admin/ad-actions";
-import { runFullPipelineAction } from "@/app/admin/pipeline-actions";
+import { PipelinePanel } from "@/components/admin/pipeline-panel";
 import { updateKeywordPinnedAction } from "@/app/keywords/actions";
 import { getAdSlotSettingsMap } from "@/lib/ad-settings";
 import { adSlotDefinitions } from "@/lib/adsterra";
+import { getLatestPipelineRun } from "@/lib/pipeline-run";
 import {
   getPinnedPrimaryKeywords,
   getTopPrimaryKeywords,
@@ -24,12 +25,13 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminPage() {
-  const [sources, stats, keywords, pinnedKeywords, adSettings] = await Promise.all([
+  const [sources, stats, keywords, pinnedKeywords, adSettings, latestPipelineRun] = await Promise.all([
     getSources(),
     getSourceStats(),
     getTopPrimaryKeywords(),
     getPinnedPrimaryKeywords(8),
     getAdSlotSettingsMap(),
+    getLatestPipelineRun(),
   ]);
   const sourceNameById = new Map(sources.map((source) => [source.externalId, source.name]));
 
@@ -57,19 +59,6 @@ export default async function AdminPage() {
                 Source inventory, crawler health, primary keyword pins, and pipeline progress
                 live here. Keep this route for internal workflow and review.
               </p>
-              <form action={runFullPipelineAction} className="mt-6">
-                <button
-                  className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
-                  type="submit"
-                >
-                  Run Full Pipeline
-                </button>
-              </form>
-              <p className="mt-3 text-sm text-slate-500">
-                Default flow: ingest 4 sources, extract primary keywords, generate secondary
-                keywords, run analysis, cluster hubs, generate pages, then publish eligible
-                results.
-              </p>
             </div>
           </div>
 
@@ -91,6 +80,8 @@ export default async function AdminPage() {
             />
           </div>
         </section>
+
+        <PipelinePanel initialRun={latestPipelineRun} />
 
         {pinnedKeywords.length > 0 ? (
           <section className="rounded-[28px] border border-black/10 bg-[#152218] p-6 text-white shadow-[0_16px_60px_rgba(24,32,22,0.22)]">

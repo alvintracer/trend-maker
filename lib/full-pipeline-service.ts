@@ -5,6 +5,14 @@ import { clusterSecondaryKeywords } from "@/lib/hub-service";
 import { ingestSource } from "@/lib/ingestion-service";
 import { generateKeywordAnalysesForKeywords } from "@/lib/keyword-analysis-service";
 import { generatePrimaryKeywordsForSources } from "@/lib/keyword-service";
+import {
+  completePipelineRun,
+  createInitialPipelineSteps,
+  createPipelineRun,
+  failPipelineRun,
+  type PipelineStep,
+  updatePipelineRunSteps,
+} from "@/lib/pipeline-run";
 import { prisma } from "@/lib/prisma";
 import { publishGeneratedPage, publishHub } from "@/lib/publish-service";
 import { generateSecondaryKeywordsForPrimaryKeywords } from "@/lib/secondary-keyword-service";
@@ -31,6 +39,16 @@ type IngestionFailure = {
   ok: false;
   sourceId: string;
   error: string;
+};
+
+type StageUpdate = {
+  stepId: PipelineStep["id"];
+  status: PipelineStep["status"];
+  summary?: string;
+};
+
+type FullPipelineHooks = {
+  onStageUpdate?: (update: StageUpdate) => Promise<void> | void;
 };
 
 function getOpenAIConfigured() {
@@ -72,14 +90,24 @@ function compareKeywordPriority(
   return right.lastSeenAt.getTime() - left.lastSeenAt.getTime();
 }
 
-export async function runFullPipeline(options: FullPipelineOptions = {}) {
+export async function runFullPipeline(
+  options: FullPipelineOptions = {},
+  hooks: FullPipelineHooks = {},
+) {
   const sourceIds = options.sourceIds?.length ? options.sourceIds : [...DEFAULT_SOURCE_IDS];
   const maxPrimaryKeywords = options.maxPrimaryKeywords ?? 8;
   const maxSecondaryAnalyses = options.maxSecondaryAnalyses ?? 24;
   const limitPerPrimary = options.limitPerPrimary ?? 10;
   const publishEligible = options.publishEligible ?? true;
+  const notify = async (update: StageUpdate) => {
+    await hooks.onStageUpdate?.(update);
+  };
 
   const ingestion: Array<IngestionSuccess | IngestionFailure> = [];
+  await notify({
+    stepId: "ingest",
+    status: "running",
+  });
 
   for (const sourceId of sourceIds) {
     try {
@@ -108,6 +136,16 @@ export async function runFullPipeline(options: FullPipelineOptions = {}) {
     throw new Error("Full pipeline aborted: no source ingestion succeeded");
   }
 
+  await notify({
+    stepId: "ingest",
+    status: "completed",
+    summary: `${successfulSourceIds.length}/${ingestion.length} sources ingested`,
+  });
+
+  await notify({
+    stepId: "primary",
+    status: "running",
+  });
   const primaryResult = await generatePrimaryKeywordsForSources(successfulSourceIds);
   const primaryKeywords = await prisma.keyword.findMany({
     where: {
@@ -138,6 +176,16 @@ export async function runFullPipeline(options: FullPipelineOptions = {}) {
     throw new Error("Full pipeline aborted: no eligible primary keywords found");
   }
 
+  await notify({
+    stepId: "primary",
+    status: "completed",
+    summary: `${selectedPrimaryKeywordIds.length} primary keywords selected`,
+  });
+
+  await notify({
+    stepId: "secondary",
+    status: "running",
+  });
   const secondaryResult = await generateSecondaryKeywordsForPrimaryKeywords(
     selectedPrimaryKeywordIds,
     limitPerPrimary,
@@ -173,6 +221,12 @@ export async function runFullPipeline(options: FullPipelineOptions = {}) {
     .slice(0, maxSecondaryAnalyses);
   const selectedSecondaryKeywordIds = selectedSecondaryKeywords.map((keyword) => keyword.id);
 
+  await notify({
+    stepId: "secondary",
+    status: "completed",
+    summary: `${selectedSecondaryKeywordIds.length} secondary keywords selected`,
+  });
+
   let analysisResult:
     | {
         analyzedCount: number;
@@ -182,6 +236,11 @@ export async function runFullPipeline(options: FullPipelineOptions = {}) {
         skipped: true;
         reason: string;
       };
+
+  await notify({
+    stepId: "analysis",
+    status: "running",
+  });
 
   if (!getOpenAIConfigured()) {
     analysisResult = {
@@ -196,6 +255,15 @@ export async function runFullPipeline(options: FullPipelineOptions = {}) {
   } else {
     analysisResult = await generateKeywordAnalysesForKeywords(selectedSecondaryKeywordIds);
   }
+
+  await notify({
+    stepId: "analysis",
+    status: "skipped" in analysisResult ? "skipped" : "completed",
+    summary:
+      "skipped" in analysisResult
+        ? analysisResult.reason
+        : `${analysisResult.analyzedCount} keywords analyzed`,
+  });
 
   const analyzedSecondaryKeywords = await prisma.keyword.findMany({
     where: {
@@ -215,17 +283,41 @@ export async function runFullPipeline(options: FullPipelineOptions = {}) {
   });
   const analyzedSecondaryIds = analyzedSecondaryKeywords.map((keyword) => keyword.id);
 
+  await notify({
+    stepId: "hubs",
+    status: "running",
+  });
   const hubResult =
     analyzedSecondaryIds.length > 0
       ? await clusterSecondaryKeywords(analyzedSecondaryIds)
       : { hubCount: 0, mappedKeywordCount: 0 };
 
+  await notify({
+    stepId: "hubs",
+    status: "completed",
+    summary: `${hubResult.hubCount} hubs materialized`,
+  });
+
+  await notify({
+    stepId: "pages",
+    status: "running",
+  });
   const pageResult =
     analyzedSecondaryIds.length > 0
       ? await generatePagesForKeywords(analyzedSecondaryIds)
       : { requestedCount: 0, generatedCount: 0 };
 
+  await notify({
+    stepId: "pages",
+    status: "completed",
+    summary: `${pageResult.generatedCount} pages generated`,
+  });
+
   const publishResults = [];
+  await notify({
+    stepId: "publish",
+    status: "running",
+  });
 
   if (publishEligible && analyzedSecondaryIds.length > 0) {
     const generatedPages = await prisma.generatedPage.findMany({
@@ -275,6 +367,12 @@ export async function runFullPipeline(options: FullPipelineOptions = {}) {
     }
   }
 
+  await notify({
+    stepId: "publish",
+    status: publishResults.some((entry) => !entry.ok) ? "failed" : "completed",
+    summary: `${publishResults.filter((entry) => entry.ok).length} published, ${publishResults.filter((entry) => !entry.ok).length} failed`,
+  });
+
   return {
     sourceIds,
     ingestion,
@@ -298,4 +396,83 @@ export async function runFullPipeline(options: FullPipelineOptions = {}) {
       results: publishResults,
     },
   };
+}
+
+export async function runTrackedFullPipeline(options: FullPipelineOptions = {}) {
+  const sourceIds = options.sourceIds?.length ? options.sourceIds : [...DEFAULT_SOURCE_IDS];
+  const run = await createPipelineRun(sourceIds);
+  const steps = createInitialPipelineSteps();
+
+  async function syncSteps() {
+    await updatePipelineRunSteps(run.id, steps);
+  }
+
+  function updateStep(
+    stepId: PipelineStep["id"],
+    patch: Partial<PipelineStep>,
+  ) {
+    const target = steps.find((step) => step.id === stepId);
+
+    if (!target) {
+      return;
+    }
+
+    Object.assign(target, patch);
+  }
+
+  try {
+    const result = await runFullPipeline(options, {
+      onStageUpdate: async (update) => {
+        const now = new Date().toISOString();
+        const current = steps.find((step) => step.id === update.stepId);
+
+        updateStep(update.stepId, {
+          status: update.status,
+          summary: update.summary,
+          startedAt:
+            update.status === "running"
+              ? current?.startedAt ?? now
+              : current?.startedAt,
+          finishedAt:
+            update.status === "completed" ||
+            update.status === "failed" ||
+            update.status === "skipped"
+              ? now
+              : undefined,
+        });
+        await syncSteps();
+      },
+    });
+
+    await completePipelineRun(run.id, steps, {
+      ingestedSources: result.ingestion.filter((entry) => entry.ok).length,
+      selectedPrimaryKeywords: result.primary.selectedKeywordIds.length,
+      selectedSecondaryKeywords: result.secondary.selectedKeywordIds.length,
+      analyzedKeywords: "skipped" in result.analysis ? 0 : result.analysis.analyzedCount,
+      generatedPages: result.pages.generatedCount,
+      publishedItems: result.publish.succeeded,
+    });
+
+    return {
+      runId: run.id,
+      ...result,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown pipeline error";
+    const runningStep =
+      steps.find((step) => step.status === "running") ??
+      steps.find((step) => step.status === "pending");
+
+    if (runningStep) {
+      updateStep(runningStep.id, {
+        status: "failed",
+        finishedAt: new Date().toISOString(),
+        error: message,
+      });
+    }
+
+    await syncSteps();
+    await failPipelineRun(run.id, steps, message);
+    throw error;
+  }
 }

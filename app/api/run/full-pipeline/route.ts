@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { runFullPipeline } from "@/lib/full-pipeline-service";
+import { runTrackedFullPipeline } from "@/lib/full-pipeline-service";
 
 export async function POST(request: Request) {
   try {
@@ -14,7 +14,7 @@ export async function POST(request: Request) {
         }
       | null;
 
-    const result = await runFullPipeline({
+    const result = await runTrackedFullPipeline({
       sourceIds: body?.sourceIds,
       maxPrimaryKeywords: body?.maxPrimaryKeywords,
       maxSecondaryAnalyses: body?.maxSecondaryAnalyses,

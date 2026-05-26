@@ -58,6 +58,15 @@ enum HubStatus {
   @@schema("trend_maker")
 }
 
+enum PipelineRunStatus {
+  queued
+  running
+  completed
+  failed
+
+  @@schema("trend_maker")
+}
+
 model Source {
   id                 Int           @id @default(autoincrement())
   externalId         String        @unique
@@ -240,5 +249,21 @@ model AdSlotSetting {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@schema("trend_maker")
+}
+
+model PipelineRun {
+  id          Int               @id @default(autoincrement())
+  status      PipelineRunStatus @default(queued)
+  sourceIdsRaw String?
+  stepsJson   String
+  summaryJson String?
+  error       String?
+  startedAt   DateTime          @default(now())
+  finishedAt  DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([status, startedAt])
   @@schema("trend_maker")
 }
