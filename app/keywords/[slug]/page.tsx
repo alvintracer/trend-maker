@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import { GlobalAdScripts } from "@/components/ads/global-ad-scripts";
+import { PublicAdSlot } from "@/components/ads/public-ad-slot";
+import { getAdSlotSettingsMap } from "@/lib/ad-settings";
 import { getGeneratedPageBySlug, parseGeneratedPageArray } from "@/lib/generated-page-service";
 import { getSiteUrl } from "@/lib/site-url";
 
@@ -44,7 +47,7 @@ export async function generateMetadata({
 
 export default async function KeywordDetailPage({ params }: KeywordDetailPageProps) {
   const { slug } = await params;
-  const page = await getGeneratedPageBySlug(slug);
+  const [page, adSettings] = await Promise.all([getGeneratedPageBySlug(slug), getAdSlotSettingsMap()]);
 
   if (!page) {
     notFound();
@@ -59,7 +62,30 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,#eef6ff_0%,#f8f5ec_48%,#f7f7f4_100%)] text-slate-950">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-10 lg:px-10">
+      <GlobalAdScripts
+        enabledKeys={[
+          ...(adSettings.global_social_bar ? (["global_social_bar"] as const) : []),
+          ...(adSettings.global_popunder ? (["global_popunder"] as const) : []),
+        ]}
+      />
+      <div className="mx-auto grid w-full max-w-[1500px] gap-6 px-4 py-8 xl:grid-cols-[190px_minmax(0,1fr)_320px] xl:px-6">
+        <aside className="hidden xl:block">
+          <PublicAdSlot
+            slotKey="detail_left_rail"
+            enabled={adSettings.detail_left_rail}
+            surfaceClassName="overflow-hidden rounded-[28px] border border-black/10 bg-white/85 p-4 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur xl:sticky xl:top-6"
+          />
+        </aside>
+
+        <div className="flex min-w-0 flex-col gap-6">
+          <div className="flex justify-center">
+            <PublicAdSlot
+              slotKey="detail_top_banner"
+              enabled={adSettings.detail_top_banner}
+              surfaceClassName="overflow-hidden rounded-[22px] border border-black/10 bg-white/90 px-3 py-3 shadow-[0_10px_32px_rgba(53,58,42,0.08)]"
+            />
+          </div>
+
         <section className="rounded-[28px] border border-black/10 bg-white/90 p-8 shadow-[0_24px_80px_rgba(63,63,38,0.12)]">
           <div className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-900">
             CommunityWikiKorea Hub
@@ -109,6 +135,8 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
             <StatCard label="Related Terms" value={String(relatedKeywords.length)} />
           </div>
         </section>
+
+        <PublicAdSlot slotKey="detail_inline_native" enabled={adSettings.detail_inline_native} />
 
         <section className="grid gap-6 lg:grid-cols-2">
           <div className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)]">
@@ -161,6 +189,36 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
             )}
           </div>
         </section>
+
+        <div className="flex justify-center">
+          <PublicAdSlot
+            slotKey="detail_bottom_banner"
+            enabled={adSettings.detail_bottom_banner}
+            surfaceClassName="overflow-hidden rounded-[22px] border border-black/10 bg-white/90 px-3 py-3 shadow-[0_10px_32px_rgba(53,58,42,0.08)]"
+          />
+        </div>
+        </div>
+
+        <aside className="hidden xl:block">
+          <div className="flex flex-col gap-6 xl:sticky xl:top-6">
+            <PublicAdSlot
+              slotKey="detail_right_rail"
+              enabled={adSettings.detail_right_rail}
+              surfaceClassName="overflow-hidden rounded-[28px] border border-black/10 bg-white/85 p-4 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur"
+            />
+            <div className="rounded-[28px] border border-black/10 bg-white/85 p-5 shadow-[0_16px_60px_rgba(53,58,42,0.08)]">
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Quick Facts
+              </div>
+              <div className="mt-4 grid gap-3">
+                <QuickFact label="상태" value={page.status} />
+                <QuickFact label="레벨" value={page.keyword.level} />
+                <QuickFact label="연관어" value={String(relatedKeywords.length)} />
+                <QuickFact label="확장 키워드" value={String(tertiaryKeywords.length)} />
+              </div>
+            </div>
+          </div>
+        </aside>
       </div>
     </main>
   );
@@ -179,6 +237,17 @@ function StatCard({ label, value }: { label: string; value: string }) {
     <div className="rounded-[24px] border border-black/10 bg-white/85 p-5 shadow-[0_12px_40px_rgba(53,58,42,0.08)]">
       <div className="text-sm font-medium text-slate-500">{label}</div>
       <div className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">{value}</div>
+    </div>
+  );
+}
+
+function QuickFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-black/8 bg-stone-50/80 px-4 py-3">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+        {label}
+      </div>
+      <div className="mt-1 text-sm font-semibold text-slate-900">{value}</div>
     </div>
   );
 }

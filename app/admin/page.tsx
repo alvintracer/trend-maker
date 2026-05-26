@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { updateAdSlotEnabledAction } from "@/app/admin/ad-actions";
 import { updateKeywordPinnedAction } from "@/app/keywords/actions";
+import { getAdSlotSettingsMap } from "@/lib/ad-settings";
+import { adSlotDefinitions } from "@/lib/adsterra";
 import {
   getPinnedPrimaryKeywords,
   getTopPrimaryKeywords,
@@ -20,11 +23,12 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminPage() {
-  const [sources, stats, keywords, pinnedKeywords] = await Promise.all([
+  const [sources, stats, keywords, pinnedKeywords, adSettings] = await Promise.all([
     getSources(),
     getSourceStats(),
     getTopPrimaryKeywords(),
     getPinnedPrimaryKeywords(8),
+    getAdSlotSettingsMap(),
   ]);
   const sourceNameById = new Map(sources.map((source) => [source.externalId, source.name]));
 
@@ -146,6 +150,60 @@ export default async function AdminPage() {
             </div>
           </section>
         ) : null}
+
+        <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight">Ad Slots</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Public homepage and detail page placements. Toggle each slot without code edits.
+              </p>
+            </div>
+          </div>
+          <div className="mt-5 grid gap-3 lg:grid-cols-2">
+            {adSlotDefinitions.map((slot) => {
+              const enabled = adSettings[slot.key];
+
+              return (
+                <article
+                  key={slot.key}
+                  className="rounded-2xl border border-black/8 bg-stone-50/80 p-4"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="text-base font-semibold text-slate-950">{slot.label}</div>
+                      <div className="mt-1 text-xs text-slate-500">{slot.key}</div>
+                    </div>
+                    <span
+                      className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${
+                        enabled
+                          ? "bg-emerald-100 text-emerald-900"
+                          : "bg-slate-200 text-slate-700"
+                      }`}
+                    >
+                      {enabled ? "enabled" : "disabled"}
+                    </span>
+                  </div>
+                  <p className="mt-3 text-sm leading-6 text-slate-600">{slot.description}</p>
+                  <form action={updateAdSlotEnabledAction} className="mt-4">
+                    <input type="hidden" name="slotKey" value={slot.key} />
+                    <input type="hidden" name="enabled" value={enabled ? "0" : "1"} />
+                    <button
+                      className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                        enabled
+                          ? "border border-black/10 bg-white text-slate-800 hover:bg-stone-100"
+                          : "bg-slate-950 text-white hover:bg-slate-800"
+                      }`}
+                      type="submit"
+                    >
+                      {enabled ? "Disable" : "Enable"}
+                    </button>
+                  </form>
+                </article>
+              );
+            })}
+          </div>
+        </section>
 
         <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
           <div className="rounded-[28px] border border-black/10 bg-white/80 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
