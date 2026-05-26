@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { updateAdSlotEnabledAction } from "@/app/admin/ad-actions";
+import { runFullPipelineAction } from "@/app/admin/pipeline-actions";
 import { updateKeywordPinnedAction } from "@/app/keywords/actions";
 import { getAdSlotSettingsMap } from "@/lib/ad-settings";
 import { adSlotDefinitions } from "@/lib/adsterra";
@@ -55,6 +56,19 @@ export default async function AdminPage() {
               <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">
                 Source inventory, crawler health, primary keyword pins, and pipeline progress
                 live here. Keep this route for internal workflow and review.
+              </p>
+              <form action={runFullPipelineAction} className="mt-6">
+                <button
+                  className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
+                  type="submit"
+                >
+                  Run Full Pipeline
+                </button>
+              </form>
+              <p className="mt-3 text-sm text-slate-500">
+                Default flow: ingest 4 sources, extract primary keywords, generate secondary
+                keywords, run analysis, cluster hubs, generate pages, then publish eligible
+                results.
               </p>
             </div>
           </div>
