@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 
 import { runTrackedFullPipeline } from "@/lib/full-pipeline-service";
 
@@ -22,19 +22,31 @@ export async function POST(request: Request) {
         }
       | null;
 
-    const result = await runTrackedFullPipeline({
+    const options = {
       sourceIds: body?.sourceIds,
       maxPrimaryKeywords: body?.maxPrimaryKeywords,
       maxSecondaryAnalyses: body?.maxSecondaryAnalyses,
       limitPerPrimary: body?.limitPerPrimary,
       publishEligible: body?.publishEligible,
       startFrom: body?.startFrom,
+    };
+
+    after(async () => {
+      try {
+        await runTrackedFullPipeline(options);
+      } catch (error) {
+        console.error("full pipeline background run failed", error);
+      }
     });
 
-    return NextResponse.json({
-      ok: true,
-      ...result,
-    });
+    return NextResponse.json(
+      {
+        ok: true,
+        accepted: true,
+        message: "Pipeline execution scheduled",
+      },
+      { status: 202 },
+    );
   } catch (error) {
     return NextResponse.json(
       {
