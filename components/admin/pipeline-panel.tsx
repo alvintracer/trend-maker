@@ -62,7 +62,6 @@ export function PipelinePanel({ initialRun }: { initialRun: PipelineRunView | nu
   const [includeIngest, setIncludeIngest] = useState(true);
   const [includePageGeneration, setIncludePageGeneration] = useState(true);
   const [includePublish, setIncludePublish] = useState(false);
-  const [includeAnalysis, setIncludeAnalysis] = useState(false);
   const intervalRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -166,13 +165,7 @@ export function PipelinePanel({ initialRun }: { initialRun: PipelineRunView | nu
       Number.isFinite(parsedMaxPrimaryKeywords) && parsedMaxPrimaryKeywords > 0
         ? parsedMaxPrimaryKeywords
         : 30;
-    const endAt = includePublish
-      ? "publish"
-      : includePageGeneration
-        ? "pages"
-        : includeAnalysis
-          ? "analysis"
-          : "secondary";
+    const endAt = includePublish ? "publish" : includePageGeneration ? "pages" : "secondary";
 
     return {
       sourceIds: includeIngest ? ["dcinside-dcbest"] : undefined,
@@ -183,8 +176,8 @@ export function PipelinePanel({ initialRun }: { initialRun: PipelineRunView | nu
       maxPrimaryKeywords: maxPrimary,
       publishEligible: includePublish,
       secondaryForceRefresh: forceRefresh,
-      skipAnalysis: !includeAnalysis,
-      skipHubs: !includeAnalysis,
+      skipAnalysis: true,
+      skipHubs: true,
     };
   }
 
@@ -250,15 +243,9 @@ export function PipelinePanel({ initialRun }: { initialRun: PipelineRunView | nu
           onChange={() => undefined}
         />
         <BatchToggle
-          checked={includeAnalysis}
-          label="Analysis/Hubs"
-          description="중간 분석 단계와 허브 클러스터 포함"
-          onChange={setIncludeAnalysis}
-        />
-        <BatchToggle
           checked={includePageGeneration}
           label="Page Generation"
-          description="secondary 기반 공개 페이지 생성"
+          description="secondary + DCBest 재료로 공개 페이지 생성"
           onChange={(value) => {
             setIncludePageGeneration(value);
             if (!value) {
@@ -266,9 +253,6 @@ export function PipelinePanel({ initialRun }: { initialRun: PipelineRunView | nu
             }
           }}
         />
-      </div>
-
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <BatchToggle
           checked={includePublish}
           label="Publish"
@@ -276,6 +260,9 @@ export function PipelinePanel({ initialRun }: { initialRun: PipelineRunView | nu
           onChange={setIncludePublish}
           disabled={!includePageGeneration}
         />
+      </div>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
         <ModeCard
           title="Resume"
           description="실패 시 해당 단계 카드의 Resume From Here로 이어서 다시 돌립니다."

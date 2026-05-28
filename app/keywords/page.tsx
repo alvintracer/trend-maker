@@ -7,30 +7,21 @@ import {
   deleteManualPrimaryKeywordAction,
   updateKeywordPinnedAction,
 } from "@/app/keywords/actions";
-import { clusterSecondaryKeywordsBulkAction } from "@/app/keywords/hub-actions";
-import {
-  generateKeywordAnalysisAction,
-  generateKeywordAnalysisBulkAction,
-} from "@/app/keywords/analysis-actions";
 import {
   generateKeywordPageAction,
   generateKeywordPageBulkAction,
 } from "@/app/keywords/page-actions";
 import {
   publishGeneratedPageAction,
-  publishHubAction,
   unpublishGeneratedPageAction,
-  unpublishHubAction,
 } from "@/app/keywords/publish-actions";
 import { getGeneratedPages } from "@/lib/generated-page-service";
-import { getHubInventory } from "@/lib/hub-service";
 import {
   generateSecondaryKeywordsAction,
   generateSecondaryKeywordsBulkAction,
 } from "@/app/keywords/secondary-actions";
 import {
   getPrimaryKeywords,
-  getTertiaryKeywords,
   isManualKeywordSource,
   parseKeywordSourceIds,
 } from "@/lib/keyword-repository";
@@ -72,8 +63,6 @@ const SORT_OPTIONS = [
 const VIEW_OPTIONS = [
   { value: "primary", label: "Primary" },
   { value: "secondary", label: "Secondary" },
-  { value: "tertiary", label: "Tertiary" },
-  { value: "hubs", label: "Hubs" },
   { value: "generated", label: "Generated" },
 ] as const;
 
@@ -86,7 +75,7 @@ const SECONDARY_STATUS_OPTIONS = [
 ] as const;
 
 type SortOptionValue = (typeof SORT_OPTIONS)[number]["value"];
-type ViewOptionValue = (typeof VIEW_OPTIONS)[number]["value"];
+type ViewOptionValue = "primary" | "secondary" | "generated";
 
 const MANUAL_SOURCE_OPTION = {
   id: -1,
@@ -103,7 +92,7 @@ export async function KeywordsInventoryPage({ searchParams }: KeywordsPageProps)
   const selectedSecondaryStatus = normalizeSecondaryStatus(params.secondaryStatus);
   const secondaryStatuses = parseSecondaryStatuses(selectedSecondaryStatus);
 
-  const [keywords, sources] = await Promise.all([
+  const [keywords, sources, generatedPages] = await Promise.all([
     getPrimaryKeywords({
       limit: 120,
       sort: selectedSort,
@@ -111,14 +100,8 @@ export async function KeywordsInventoryPage({ searchParams }: KeywordsPageProps)
       pinnedOnly,
     }),
     getSources(),
+    getGeneratedPages(200),
   ]);
-  const tertiaryKeywords = await getTertiaryKeywords({
-    limit: 200,
-    sort: selectedSort === "pinned" ? "opportunity" : selectedSort,
-    sourceIds: selectedSourceIds,
-  });
-  const generatedPages = await getGeneratedPages(200);
-  const hubs = await getHubInventory(200, selectedSourceIds);
 
   const sourceOptions = [...sources, MANUAL_SOURCE_OPTION];
   const sourceNameById = new Map(sourceOptions.map((source) => [source.externalId, source.name]));
@@ -141,8 +124,6 @@ export async function KeywordsInventoryPage({ searchParams }: KeywordsPageProps)
 
   const maxCoverage = Math.max(...keywords.map((keyword) => keyword.metrics[0]?.sourceCount ?? 0), 0);
   const visibleSecondaryCount = secondaryInventory.length;
-  const visibleTertiaryCount = tertiaryKeywords.length;
-  const visibleHubCount = hubs.length;
   const visibleGeneratedCount = generatedPages.filter((page) => {
     if (selectedSourceIds.length === 0) {
       return true;
@@ -163,11 +144,11 @@ export async function KeywordsInventoryPage({ searchParams }: KeywordsPageProps)
                 Admin Keyword Inventory
               </div>
               <h1 className="mt-3 text-4xl font-semibold tracking-tight sm:text-5xl">
-                Primary, secondary, hub, and page inventory.
+                Primary, secondary, and page inventory.
               </h1>
               <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600">
-                수동 primary/secondary, Trends 확장 결과, 허브 클러스터, 생성 페이지를 한 곳에서
-                확인하고 배치 액션을 실행합니다.
+                수동 primary/secondary, Trends 확장 결과, 생성 페이지를 한 곳에서 확인하고
+                배치 액션을 실행합니다.
               </p>
             </div>
             <Link
@@ -186,22 +167,14 @@ export async function KeywordsInventoryPage({ searchParams }: KeywordsPageProps)
                 ? "Visible Primary"
                 : selectedView === "secondary"
                   ? "Visible Secondary"
-                  : selectedView === "tertiary"
-                    ? "Visible Tertiary"
-                    : selectedView === "hubs"
-                      ? "Visible Hubs"
-                      : "Visible Pages"
+                  : "Visible Pages"
             }
             value={String(
               selectedView === "primary"
                 ? keywords.length
                 : selectedView === "secondary"
                   ? visibleSecondaryCount
-                  : selectedView === "tertiary"
-                    ? visibleTertiaryCount
-                    : selectedView === "hubs"
-                      ? visibleHubCount
-                      : visibleGeneratedCount,
+                  : visibleGeneratedCount,
             )}
             detail={selectedSourceIds.length > 0 ? `${selectedSourceIds.length} source filters` : "all active sources"}
           />
@@ -305,14 +278,6 @@ export async function KeywordsInventoryPage({ searchParams }: KeywordsPageProps)
                   <input type="checkbox" name="pinned" value="1" defaultChecked={pinnedOnly} />
                   <span className="text-sm font-medium text-slate-900">Pinned only</span>
                 </label>
-              ) : selectedView === "tertiary" ? (
-                <div className="rounded-2xl border border-black/10 bg-stone-50 px-4 py-3 text-sm text-slate-500">
-                  Tertiary keywords follow the current source filters and sort order.
-                </div>
-              ) : selectedView === "hubs" ? (
-                <div className="rounded-2xl border border-black/10 bg-stone-50 px-4 py-3 text-sm text-slate-500">
-                  Hubs group similar secondary keywords under one canonical topic.
-                </div>
               ) : (
                 <div className="rounded-2xl border border-black/10 bg-stone-50 px-4 py-3 text-sm text-slate-500">
                   Generated pages follow source filters and latest generation order.
@@ -374,30 +339,24 @@ export async function KeywordsInventoryPage({ searchParams }: KeywordsPageProps)
                   ? "Primary Inventory"
                   : selectedView === "secondary"
                     ? "Secondary Inventory"
-                    : "Tertiary Inventory"}
+                    : "Generated Pages"}
               </h2>
               <div className="mt-1 text-sm text-slate-500">
                 {selectedView === "primary"
                   ? "Current first-pass keyword candidates from ingested titles."
                   : selectedView === "secondary"
-                    ? "Google Suggest expansions generated from the visible primary set."
-                    : selectedView === "tertiary"
-                      ? "Related keywords generated from secondary keyword analysis."
-                      : selectedView === "hubs"
-                        ? "Canonical hub clusters built from similar secondary keywords."
-                        : "SERP draft pages generated from analyzed secondary keywords."}
+                    ? "Google Trends expansions generated from the visible primary set."
+                    : "Pages generated from secondary keywords + DCBest materials."}
               </div>
               {selectedView === "secondary" ? (
                 <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
                   <MetaPill>opportunity {secondaryRules.minOpportunityScore}+</MetaPill>
                   <MetaPill>suggest {secondaryRules.minSuggestScore}+</MetaPill>
-                  <MetaPill>analyzed {secondaryRules.analyzedOpportunityScore}+</MetaPill>
                 </div>
-              ) : selectedView === "hubs" || selectedView === "generated" ? (
+              ) : selectedView === "generated" ? (
                 <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
                   <MetaPill>publish opp {publishRules.minRepresentativeOpportunity}+</MetaPill>
                   <MetaPill>summary {publishRules.minSummaryLength}+ chars</MetaPill>
-                  <MetaPill>tertiary {publishRules.minTertiaryCount}+</MetaPill>
                 </div>
               ) : null}
             </div>
@@ -407,11 +366,7 @@ export async function KeywordsInventoryPage({ searchParams }: KeywordsPageProps)
                   ? "POST /api/extract/primary"
                   : selectedView === "secondary"
                     ? "POST /api/extract/secondary"
-                    : selectedView === "tertiary"
-                      ? "POST /api/analyze/keywords"
-                      : selectedView === "hubs"
-                        ? "POST /api/extract/secondary"
-                        : "POST /api/generate/pages"}
+                    : "POST /api/generate/pages"}
               </code>
               <form action={generateSecondaryKeywordsBulkAction}>
                 {keywords.map((keyword) => (
@@ -426,46 +381,16 @@ export async function KeywordsInventoryPage({ searchParams }: KeywordsPageProps)
                 </button>
               </form>
               {selectedView === "secondary" ? (
-                <form action={clusterSecondaryKeywordsBulkAction}>
-                  {secondaryInventory.map((keyword) => (
-                    <input key={keyword.id} type="hidden" name="keywordIds" value={String(keyword.id)} />
-                  ))}
-                  <button
-                    className="rounded-full border border-black/10 bg-violet-950 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-900 disabled:cursor-not-allowed disabled:bg-violet-200"
-                    type="submit"
-                    disabled={secondaryInventory.length === 0}
-                  >
-                    Cluster Visible into Hubs
-                  </button>
-                </form>
-              ) : null}
-              {selectedView === "secondary" ? (
-                <form action={generateKeywordAnalysisBulkAction}>
-                  {secondaryInventory.map((keyword) => (
-                    <input key={keyword.id} type="hidden" name="keywordIds" value={String(keyword.id)} />
-                  ))}
-                  <button
-                    className="rounded-full border border-black/10 bg-emerald-950 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-900 disabled:cursor-not-allowed disabled:bg-emerald-200"
-                    type="submit"
-                    disabled={secondaryInventory.length === 0}
-                  >
-                    Generate Analysis for Visible
-                  </button>
-                </form>
-              ) : null}
-              {selectedView === "secondary" ? (
                 <form action={generateKeywordPageBulkAction}>
-                  {secondaryInventory
-                    .filter((keyword) => keyword.status === "analyzed")
-                    .map((keyword) => (
-                      <input key={keyword.id} type="hidden" name="keywordIds" value={String(keyword.id)} />
-                    ))}
+                  {secondaryInventory.map((keyword) => (
+                    <input key={keyword.id} type="hidden" name="keywordIds" value={String(keyword.id)} />
+                  ))}
                   <button
                     className="rounded-full border border-black/10 bg-sky-950 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-900 disabled:cursor-not-allowed disabled:bg-sky-200"
                     type="submit"
-                    disabled={secondaryInventory.filter((keyword) => keyword.status === "analyzed").length === 0}
+                    disabled={secondaryInventory.length === 0}
                   >
-                    Generate Pages for Analyzed
+                    Generate Pages for Visible
                   </button>
                 </form>
               ) : null}
@@ -683,15 +608,6 @@ export async function KeywordsInventoryPage({ searchParams }: KeywordsPageProps)
                         </div>
                         <div className="mt-4">
                           <div className="flex flex-wrap gap-2">
-                            <form action={generateKeywordAnalysisAction}>
-                              <input type="hidden" name="keywordId" value={String(entry.id)} />
-                              <button
-                                className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-stone-100"
-                                type="submit"
-                              >
-                                Generate Analysis
-                              </button>
-                            </form>
                             <form action={generateKeywordPageAction}>
                               <input type="hidden" name="keywordId" value={String(entry.id)} />
                               <button
@@ -725,173 +641,6 @@ export async function KeywordsInventoryPage({ searchParams }: KeywordsPageProps)
                 <EmptyState>
                   No secondary keywords are available for this filter yet. Run secondary
                   generation for the visible primary set.
-                </EmptyState>
-              )}
-            </div>
-          ) : selectedView === "tertiary" ? (
-            <div className="mt-5 grid gap-3">
-              {tertiaryKeywords.length > 0 ? (
-                tertiaryKeywords.map((entry, index) => {
-                  const metric = entry.metrics[0];
-                  const parentKeyword = entry.parentKeyword;
-                  const parentAnalysis = parentKeyword?.analyses[0];
-                  const tertiarySourceIds = parseKeywordSourceIds(entry.sourceIdsRaw);
-
-                  return (
-                    <article
-                      key={entry.id}
-                      className="grid gap-4 rounded-2xl border border-black/8 bg-stone-50/80 px-4 py-4 md:grid-cols-[56px_minmax(0,1fr)_220px]"
-                    >
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-950 text-sm font-semibold text-white">
-                        {index + 1}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-base font-semibold text-slate-900">{entry.text}</h3>
-                          <StatusPill status={entry.status} />
-                          <MetaPill>tertiary</MetaPill>
-                        </div>
-                        <div className="mt-1 break-all text-xs text-slate-500">
-                          {entry.normalizedText}
-                        </div>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {tertiarySourceIds.map((sourceId) => (
-                            <SourcePill key={`${entry.id}-${sourceId}`}>
-                              {sourceNameById.get(sourceId) ?? sourceId}
-                            </SourcePill>
-                          ))}
-                        </div>
-                        {parentKeyword ? (
-                          <div className="mt-4 rounded-2xl border border-black/8 bg-white px-3 py-3">
-                            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                              Parent Secondary Keyword
-                            </div>
-                            <div className="mt-2 text-sm font-semibold text-slate-900">
-                              {parentKeyword.text}
-                            </div>
-                            <div className="mt-1 text-xs text-slate-500">
-                              {parentAnalysis?.snippetTitle || parentAnalysis?.intent || "No latest analysis summary"}
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-                      <div className="grid gap-2 sm:grid-cols-3 md:grid-cols-1">
-                        <MetricRow
-                          label="Opportunity"
-                          value={metric ? metric.opportunityScore.toFixed(2) : "0.00"}
-                        />
-                        <MetricRow
-                          label="Commercial"
-                          value={metric ? metric.commercialScore.toFixed(2) : "0.00"}
-                        />
-                        <MetricRow label="Updated" value={formatDate(entry.lastSeenAt)} />
-                      </div>
-                    </article>
-                  );
-                })
-              ) : (
-                <EmptyState>
-                  No tertiary keywords are available for this filter yet. Generate analysis from
-                  the secondary inventory first.
-                </EmptyState>
-              )}
-            </div>
-          ) : selectedView === "hubs" ? (
-            <div className="mt-5 grid gap-3">
-              {hubs.length > 0 ? (
-                hubs.map((hub, index) => {
-                  const representative = hub.representativeKeyword;
-                  const metric = representative?.metrics[0];
-                  const secondaryCount = hub.secondaryKeywords.length;
-                  const tertiaryCount = hub.secondaryKeywords.reduce(
-                    (total, keyword) => total + keyword.childKeywords.length,
-                    0,
-                  );
-                  const hubSourceIds = [
-                    ...new Set(
-                      hub.secondaryKeywords.flatMap((keyword) =>
-                        parseKeywordSourceIds(keyword.sourceIdsRaw),
-                      ),
-                    ),
-                  ];
-
-                  return (
-                    <article
-                      key={hub.id}
-                      className="grid gap-4 rounded-2xl border border-black/8 bg-stone-50/80 px-4 py-4 md:grid-cols-[56px_minmax(0,1fr)_220px]"
-                    >
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-950 text-sm font-semibold text-white">
-                        {index + 1}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-base font-semibold text-slate-900">{hub.name}</h3>
-                          <MetaPill>{hub.status}</MetaPill>
-                          {hub.generatedPage ? <MetaPill>page ready</MetaPill> : null}
-                        </div>
-                        <div className="mt-1 break-all text-xs text-slate-500">{hub.slug}</div>
-                        <p className="mt-3 text-sm leading-6 text-slate-700">
-                          {hub.summary ?? representative?.analyses[0]?.summary ?? "No hub summary yet"}
-                        </p>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {hubSourceIds.map((sourceId) => (
-                            <SourcePill key={`${hub.id}-${sourceId}`}>
-                              {sourceNameById.get(sourceId) ?? sourceId}
-                            </SourcePill>
-                          ))}
-                        </div>
-                        {hub.generatedPage ? (
-                          <div className="mt-3 rounded-2xl border border-sky-900/10 bg-sky-50/70 px-3 py-3">
-                            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-sky-900">
-                              Generated Page
-                            </div>
-                            <a
-                              href={hub.generatedPage.canonicalPath}
-                              className="mt-2 block text-sm font-semibold text-sky-900 hover:underline"
-                            >
-                              {hub.generatedPage.title}
-                            </a>
-                          </div>
-                        ) : null}
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          {hub.status === "published" ? (
-                            <form action={unpublishHubAction}>
-                              <input type="hidden" name="hubId" value={String(hub.id)} />
-                              <button
-                                className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-stone-100"
-                                type="submit"
-                              >
-                                Unpublish Hub
-                              </button>
-                            </form>
-                          ) : (
-                            <form action={publishHubAction}>
-                              <input type="hidden" name="hubId" value={String(hub.id)} />
-                              <button
-                                className="rounded-full border border-emerald-900/10 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-900 transition-colors hover:bg-emerald-100"
-                                type="submit"
-                              >
-                                Publish Hub
-                              </button>
-                            </form>
-                          )}
-                        </div>
-                      </div>
-                      <div className="grid gap-2 sm:grid-cols-3 md:grid-cols-1">
-                        <MetricRow label="Secondary" value={String(secondaryCount)} />
-                        <MetricRow label="Tertiary" value={String(tertiaryCount)} />
-                        <MetricRow
-                          label="Opportunity"
-                          value={metric ? metric.opportunityScore.toFixed(2) : "0.00"}
-                        />
-                      </div>
-                    </article>
-                  );
-                })
-              ) : (
-                <EmptyState>
-                  No hubs are available for this filter yet. Cluster the secondary inventory
-                  first.
                 </EmptyState>
               )}
             </div>
@@ -988,8 +737,8 @@ export async function KeywordsInventoryPage({ searchParams }: KeywordsPageProps)
                   })
               ) : (
                 <EmptyState>
-                  No generated pages are available for this filter yet. Generate analysis and
-                  page drafts from the secondary inventory first.
+                  No generated pages yet. Run Page Generation from the batch control or generate
+                  pages from the secondary inventory.
                 </EmptyState>
               )}
             </div>
@@ -1027,9 +776,11 @@ function normalizeSort(value?: string) {
   return supportedValues.includes(value ?? "") ? (value as SortOptionValue) : "opportunity";
 }
 
-function normalizeView(value?: string) {
-  const supportedValues = VIEW_OPTIONS.map((option) => option.value) as readonly string[];
-  return supportedValues.includes(value ?? "") ? (value as ViewOptionValue) : "primary";
+function normalizeView(value?: string): ViewOptionValue {
+  if (value === "secondary" || value === "generated") {
+    return value;
+  }
+  return "primary";
 }
 
 function toArray(value?: string | string[]) {

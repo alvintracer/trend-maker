@@ -9,13 +9,21 @@ const ACTIVE_INITIALS = ["ㄱ", "ㄴ", "ㄷ", "ㄹ", "ㅁ"] as const;
 
 type SupportedInitial = (typeof ACTIVE_INITIALS)[number];
 
+const JAMO_SLUG_MAP: Record<string, string> = {
+  ㄱ: "g", ㄴ: "n", ㄷ: "d", ㄹ: "r", ㅁ: "m",
+  ㅂ: "b", ㅅ: "s", ㅇ: "o", ㅈ: "j", ㅊ: "c",
+  ㅋ: "k", ㅌ: "t", ㅍ: "p", ㅎ: "h",
+};
+
 function slugifyKeyword(value: string) {
-  return value
+  const jamoReplaced = [...value].map((ch) => JAMO_SLUG_MAP[ch] ?? ch).join("");
+  return jamoReplaced
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9가-힣ぁ-んァ-ヶー一-龯\s-]/g, "")
     .replace(/\s+/g, "-")
-    .replace(/-+/g, "-");
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function buildBodyParagraphs(initial: SupportedInitial, names: string[]) {
@@ -40,13 +48,18 @@ function buildBodyParagraphs(initial: SupportedInitial, names: string[]) {
 async function fetchNamuAvInfoHtml() {
   const response = await fetch(NAMU_AV_INFO_URL, {
     headers: {
-      "user-agent": "Mozilla/5.0",
+      "user-agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+      accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "accept-language": "ko-KR,ko;q=0.9,en-US;q=0.8",
+      referer: "https://namu.wiki/",
     },
     cache: "no-store",
+    signal: AbortSignal.timeout(15000),
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch Namu Wiki page (${response.status})`);
+    throw new Error(`나무위키 페이지 로드 실패 (HTTP ${response.status}). 잠시 후 다시 시도해 주세요.`);
   }
 
   return response.text();

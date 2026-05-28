@@ -3,7 +3,6 @@ import Link from "next/link";
 
 import { updateAdSlotEnabledAction } from "@/app/admin/ad-actions";
 import { logoutAdminAction } from "@/app/admin/auth-actions";
-import { syncNamuInitialPageAction } from "@/app/admin/namu-actions";
 import {
   bulkImportManualPrimaryKeywordsAction,
   bulkImportManualSecondaryKeywordsAction,
@@ -12,6 +11,7 @@ import {
   updateKeywordPinnedAction,
 } from "@/app/keywords/actions";
 import { DcbestIngestPanel } from "@/components/admin/dcbest-ingest-panel";
+import { NamuSyncButton } from "@/components/admin/namu-sync-button";
 import { PipelinePanel } from "@/components/admin/pipeline-panel";
 import { getAdSlotSettingsMap } from "@/lib/ad-settings";
 import { assertAdminAuthenticated } from "@/lib/admin-auth";
@@ -337,23 +337,7 @@ export default async function AdminPage() {
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             {(["ㄱ", "ㄴ", "ㄷ", "ㄹ", "ㅁ"] as const).map((initial) => (
-              <form
-                key={initial}
-                action={syncNamuInitialPageAction}
-                className="rounded-2xl border border-black/8 bg-stone-50/80 p-4"
-              >
-                <input type="hidden" name="initial" value={initial} />
-                <div className="text-lg font-semibold text-slate-950">{initial}</div>
-                <p className="mt-2 text-sm leading-6 text-slate-600">
-                  클릭 시 해당 초성 구간을 다시 읽고 공개 페이지를 갱신합니다.
-                </p>
-                <button
-                  type="submit"
-                  className="mt-4 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
-                >
-                  Sync {initial}
-                </button>
-              </form>
+              <NamuSyncButton key={initial} initial={initial} />
             ))}
           </div>
 

@@ -122,6 +122,9 @@ export async function generateSecondaryKeywordsForPrimaryKeywords(
   let cachedParentKeywordCount = 0;
   let fetchedParentKeywordCount = 0;
   const touchedSecondaryKeywordIds = new Set<number>();
+  let consecutiveFailures = 0;
+  const MAX_CONSECUTIVE_FAILURES = 4;
+  const PER_KEYWORD_TIMEOUT_MS = 28000;
 
   for (const parentKeyword of parentKeywords) {
     const recentCachedEntries = getRecentCachedSuggestResults(
@@ -132,6 +135,7 @@ export async function generateSecondaryKeywordsForPrimaryKeywords(
 
     if (!forceRefresh && recentCachedEntries.length > 0) {
       cachedParentKeywordCount += 1;
+      consecutiveFailures = 0;
       recentCachedEntries.forEach((entry) => touchedSecondaryKeywordIds.add(entry.suggestedKeywordId));
       continue;
     }
@@ -141,9 +145,9 @@ export async function generateSecondaryKeywordsForPrimaryKeywords(
         await sleep(requestDelayMs);
       }
 
-      const providerCandidates =
+      const fetchPromise =
         providerMode === "trends"
-          ? await fetchGoogleTrendsRelatedQueryCandidates(
+          ? fetchGoogleTrendsRelatedQueryCandidates(
               parentKeyword.id,
               parentKeyword.text,
               parentKeyword.region,
@@ -154,7 +158,9 @@ export async function generateSecondaryKeywordsForPrimaryKeywords(
                 risingLimit: trendsRisingLimit,
               },
             )
-          : await fetchGoogleSuggestCandidates(parentKeyword.id, parentKeyword.text);
+          : fetchGoogleSuggestCandidates(parentKeyword.id, parentKeyword.text);
+
+      const providerCandidates = await withKeywordTimeout(fetchPromise, PER_KEYWORD_TIMEOUT_MS);
       const limitedCandidates =
         providerMode === "trends"
           ? providerCandidates
@@ -162,10 +168,16 @@ export async function generateSecondaryKeywordsForPrimaryKeywords(
       allCandidates.push(...limitedCandidates);
       freshCandidatesByParent.set(parentKeyword.id, limitedCandidates);
       fetchedParentKeywordCount += 1;
+      consecutiveFailures = 0;
     } catch (error) {
       failedQueries.push(
         `${parentKeyword.text}: ${error instanceof Error ? error.message : "Unknown suggest error"}`,
       );
+      consecutiveFailures += 1;
+
+      if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+        break;
+      }
     }
   }
 
@@ -432,6 +444,15 @@ function getRecentCachedSuggestResults(
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function withKeywordTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Keyword fetch timed out after ${ms}ms`)), ms),
+    ),
+  ]);
 }
 
 async function summarizeSecondaryKeywordStatuses(keywordIds: number[]) {
