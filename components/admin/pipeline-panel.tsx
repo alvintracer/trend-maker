@@ -28,6 +28,15 @@ type PipelineRunView = {
   finishedAt: string | Date | null;
 };
 
+type PipelineRunRequestBody = {
+  startFrom?: PipelineStep["id"];
+  endAt?: PipelineStep["id"];
+  skipIngest?: boolean;
+  primarySelection?: "auto" | "manual";
+  publishEligible?: boolean;
+  secondaryForceRefresh?: boolean;
+};
+
 async function fetchLatestRun() {
   const response = await fetch("/api/admin/pipeline-runs/latest", {
     cache: "no-store",
@@ -108,7 +117,7 @@ export function PipelinePanel({
     }
   }
 
-  async function handleRun(startFrom?: PipelineStep["id"]) {
+  async function handleRun(body: PipelineRunRequestBody = {}) {
     setIsSubmitting(true);
     setMessage(null);
     startPolling();
@@ -119,7 +128,7 @@ export function PipelinePanel({
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify(startFrom ? { startFrom } : {}),
+        body: JSON.stringify(body),
       });
       const payload = (await response.json()) as { ok: boolean; error?: string };
       const latestRun = await fetchLatestRun();
@@ -145,24 +154,76 @@ export function PipelinePanel({
     }
   }
 
+  function handleManualExpansionRun(forceRefresh = false) {
+    return handleRun({
+      startFrom: "primary",
+      endAt: "secondary",
+      skipIngest: true,
+      primarySelection: "manual",
+      publishEligible: false,
+      secondaryForceRefresh: forceRefresh,
+    });
+  }
+
+  function handleResume(stepId: PipelineStep["id"]) {
+    return handleRun({
+      startFrom: stepId,
+    });
+  }
+
   return (
     <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h2 className="text-xl font-semibold tracking-tight">Full Pipeline</h2>
+          <h2 className="text-xl font-semibold tracking-tight">Pipeline Control</h2>
           <p className="mt-1 text-sm text-slate-600">
-            Run end-to-end ingestion, extraction, analysis, hub clustering, page generation,
-            and publish-ready deployment.
+            Default flow is now manual primary to Google secondary expansion. Full crawl pipeline
+            remains available as a separate action.
           </p>
         </div>
-        <button
-          className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-          type="button"
-          disabled={isSubmitting || run?.status === "running"}
-          onClick={() => handleRun()}
-        >
-          {run?.status === "running" || isSubmitting ? "Pipeline Running..." : "Run Full Pipeline"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+            type="button"
+            disabled={isSubmitting || run?.status === "running"}
+            onClick={() => handleManualExpansionRun(false)}
+          >
+            {run?.status === "running" || isSubmitting
+              ? "Pipeline Running..."
+              : "Run Manual Expansion"}
+          </button>
+          <button
+            className="rounded-full border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-slate-800 transition-colors hover:bg-stone-100 disabled:cursor-not-allowed disabled:text-slate-400"
+            type="button"
+            disabled={isSubmitting || run?.status === "running"}
+            onClick={() => handleManualExpansionRun(true)}
+          >
+            Refresh Google Expansion
+          </button>
+          <button
+            className="rounded-full border border-black/10 bg-stone-100 px-4 py-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-stone-200 disabled:cursor-not-allowed disabled:text-slate-400"
+            type="button"
+            disabled={isSubmitting || run?.status === "running"}
+            onClick={() => handleRun()}
+          >
+            Run Legacy Crawl Pipeline
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <ModeCard
+          title="Manual Expansion"
+          description="추천 흐름. 수동 프라이머리만 읽고 크롤링 없이 Google 확장만 수행합니다."
+        />
+        <ModeCard
+          title="Refresh Expansion"
+          description="기존 캐시를 무시하고 Google 확장을 다시 조회합니다. 호출이 더 많습니다."
+        />
+        <ModeCard
+          title="Full Pipeline"
+          description="예전 커뮤니티 크롤링 기반 파이프라인입니다. 기본 운영 경로로는 권장하지 않습니다."
+        />
       </div>
 
       {run?.status === "running" ? (
@@ -238,7 +299,7 @@ export function PipelinePanel({
                       className="rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-semibold text-slate-800 transition-colors hover:bg-stone-100 disabled:cursor-not-allowed disabled:text-slate-400"
                       type="button"
                       disabled={isSubmitting}
-                      onClick={() => handleRun(step.id)}
+                      onClick={() => handleResume(step.id)}
                     >
                       Resume From Here
                     </button>
@@ -250,18 +311,12 @@ export function PipelinePanel({
 
           {run.summary ? (
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <RunStat label="Primary" value={String(run.summary.selectedPrimaryKeywords ?? 0)} />
               <RunStat
-                label="Primary"
-                value={String(run.summary.selectedPrimaryKeywords ?? 0)}
+                label="Secondary"
+                value={String(run.summary.selectedSecondaryKeywords ?? 0)}
               />
-              <RunStat
-                label="Analyzed"
-                value={String(run.summary.analyzedKeywords ?? 0)}
-              />
-              <RunStat
-                label="Published"
-                value={String(run.summary.publishedItems ?? 0)}
-              />
+              <RunStat label="Analyzed" value={String(run.summary.analyzedKeywords ?? 0)} />
             </div>
           ) : null}
 
@@ -304,6 +359,15 @@ export function PipelinePanel({
         </div>
       )}
     </section>
+  );
+}
+
+function ModeCard({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="rounded-[22px] border border-black/10 bg-stone-50/80 p-4">
+      <div className="text-sm font-semibold text-slate-900">{title}</div>
+      <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
+    </div>
   );
 }
 

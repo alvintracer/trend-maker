@@ -5,7 +5,11 @@ import { generateSecondaryKeywordsForPrimaryKeywords } from "@/lib/secondary-key
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => null)) as
-      | { keywordIds?: number[] }
+      | {
+          keywordIds?: number[];
+          providerMode?: "suggest" | "trends";
+          forceRefresh?: boolean;
+        }
       | null;
     const keywordIds = body?.keywordIds ?? [];
 
@@ -13,7 +17,10 @@ export async function POST(request: Request) {
       throw new Error("keywordIds is required");
     }
 
-    const result = await generateSecondaryKeywordsForPrimaryKeywords(keywordIds);
+    const result = await generateSecondaryKeywordsForPrimaryKeywords(keywordIds, 10, {
+      providerMode: body?.providerMode ?? "trends",
+      forceRefresh: body?.forceRefresh ?? false,
+    });
 
     return NextResponse.json({
       ok: true,

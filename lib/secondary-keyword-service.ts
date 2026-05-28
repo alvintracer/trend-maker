@@ -1,5 +1,6 @@
 import { KeywordLevel, KeywordStatus, Prisma } from "@prisma/client";
 
+import { fetchGoogleTrendsRelatedQueryCandidates } from "@/lib/google-trends";
 import { parseKeywordSourceIds } from "@/lib/keyword-repository";
 import { fetchGoogleSuggestCandidates } from "@/lib/keyword-suggest";
 import { prisma } from "@/lib/prisma";
@@ -12,6 +13,11 @@ const SECONDARY_KEYWORD_RULES = {
   minOpportunityScore: 8,
   analyzedOpportunityScore: 14,
 } as const;
+
+const SUGGEST_CACHE_TTL_HOURS = 12;
+const SUGGEST_REQUEST_DELAY_MS = 350;
+const GOOGLE_TRENDS_TOP_LIMIT = 50;
+const GOOGLE_TRENDS_RISING_LIMIT = 50;
 
 function startOfToday() {
   const date = new Date();
@@ -46,7 +52,25 @@ function getCommercialIntentScore(text: string) {
 export async function generateSecondaryKeywordsForPrimaryKeywords(
   parentKeywordIds: number[],
   limitPerKeyword = 10,
+  options: {
+    forceRefresh?: boolean;
+    cacheTtlHours?: number;
+    requestDelayMs?: number;
+    providerMode?: "suggest" | "trends";
+    trendsTopLimit?: number;
+    trendsRisingLimit?: number;
+    trendsTimeframe?: string;
+  } = {},
 ) {
+  const forceRefresh = options.forceRefresh ?? false;
+  const cacheTtlHours = options.cacheTtlHours ?? SUGGEST_CACHE_TTL_HOURS;
+  const requestDelayMs = options.requestDelayMs ?? SUGGEST_REQUEST_DELAY_MS;
+  const providerMode = options.providerMode ?? "trends";
+  const trendsTopLimit = options.trendsTopLimit ?? GOOGLE_TRENDS_TOP_LIMIT;
+  const trendsRisingLimit = options.trendsRisingLimit ?? GOOGLE_TRENDS_RISING_LIMIT;
+  const trendsTimeframe = options.trendsTimeframe ?? "now 7-d";
+  const providerLimit =
+    providerMode === "trends" ? trendsTopLimit + trendsRisingLimit : limitPerKeyword;
   const parentKeywords = await prisma.keyword.findMany({
     where: {
       id: {
@@ -61,6 +85,29 @@ export async function generateSecondaryKeywordsForPrimaryKeywords(
         },
         take: 1,
       },
+      suggestResults: {
+        where: {
+          provider: {
+            in:
+              providerMode === "trends"
+                ? ["google_trends_top", "google_trends_rising"]
+                : ["google_suggest"],
+          },
+        },
+        orderBy: [
+          {
+            fetchedAt: "desc",
+          },
+          {
+            rank: "asc",
+          },
+        ],
+        select: {
+          suggestedKeywordId: true,
+          fetchedAt: true,
+          rank: true,
+        },
+      },
     },
   });
 
@@ -71,11 +118,50 @@ export async function generateSecondaryKeywordsForPrimaryKeywords(
   const allCandidates: SecondaryKeywordCandidate[] = [];
   const parentKeywordsById = new Map(parentKeywords.map((keyword) => [keyword.id, keyword]));
   const failedQueries: string[] = [];
+  const freshCandidatesByParent = new Map<number, SecondaryKeywordCandidate[]>();
+  let cachedParentKeywordCount = 0;
+  let fetchedParentKeywordCount = 0;
+  const touchedSecondaryKeywordIds = new Set<number>();
 
   for (const parentKeyword of parentKeywords) {
+    const recentCachedEntries = getRecentCachedSuggestResults(
+      parentKeyword.suggestResults,
+      cacheTtlHours,
+      providerLimit,
+    );
+
+    if (!forceRefresh && recentCachedEntries.length > 0) {
+      cachedParentKeywordCount += 1;
+      recentCachedEntries.forEach((entry) => touchedSecondaryKeywordIds.add(entry.suggestedKeywordId));
+      continue;
+    }
+
     try {
-      const candidates = await fetchGoogleSuggestCandidates(parentKeyword.id, parentKeyword.text);
-      allCandidates.push(...candidates.slice(0, limitPerKeyword));
+      if (allCandidates.length > 0 || cachedParentKeywordCount > 0) {
+        await sleep(requestDelayMs);
+      }
+
+      const providerCandidates =
+        providerMode === "trends"
+          ? await fetchGoogleTrendsRelatedQueryCandidates(
+              parentKeyword.id,
+              parentKeyword.text,
+              parentKeyword.region,
+              parentKeyword.language,
+              {
+                timeframe: trendsTimeframe,
+                topLimit: trendsTopLimit,
+                risingLimit: trendsRisingLimit,
+              },
+            )
+          : await fetchGoogleSuggestCandidates(parentKeyword.id, parentKeyword.text);
+      const limitedCandidates =
+        providerMode === "trends"
+          ? providerCandidates
+          : providerCandidates.slice(0, limitPerKeyword);
+      allCandidates.push(...limitedCandidates);
+      freshCandidatesByParent.set(parentKeyword.id, limitedCandidates);
+      fetchedParentKeywordCount += 1;
     } catch (error) {
       failedQueries.push(
         `${parentKeyword.text}: ${error instanceof Error ? error.message : "Unknown suggest error"}`,
@@ -83,17 +169,17 @@ export async function generateSecondaryKeywordsForPrimaryKeywords(
     }
   }
 
-  if (allCandidates.length === 0) {
+  if (allCandidates.length === 0 && touchedSecondaryKeywordIds.size === 0) {
     throw new Error(
-      failedQueries.length > 0
+      failedQueries.length > 0 && cachedParentKeywordCount === 0
         ? `Secondary keyword generation failed for all parent keywords. ${failedQueries
             .slice(0, 3)
             .join(" | ")}`
-        : "No secondary keyword candidates returned from Google Suggest",
+        : `No secondary keyword candidates returned from ${
+            providerMode === "trends" ? "Google Trends" : "Google Suggest"
+          }`,
     );
   }
-
-  const touchedSecondaryKeywordIds = new Set<number>();
 
   for (const candidate of allCandidates) {
     const parentKeyword = parentKeywordsById.get(candidate.parentKeywordId);
@@ -125,6 +211,8 @@ export async function generateSecondaryKeywordsForPrimaryKeywords(
       update: {
         text: candidate.text,
         level: KeywordLevel.secondary,
+        region: parentKeyword.region,
+        language: parentKeyword.language,
         sourceLabel: candidate.provider,
         sourceIdsRaw: mergedSourceIdsRaw,
         lastSeenAt: new Date(),
@@ -135,8 +223,8 @@ export async function generateSecondaryKeywordsForPrimaryKeywords(
         normalizedText: candidate.normalizedText,
         level: KeywordLevel.secondary,
         parentKeywordId: parentKeyword.id,
-        region: "KR",
-        language: "ko",
+        region: parentKeyword.region,
+        language: parentKeyword.language,
         sourceLabel: candidate.provider,
         sourceIdsRaw: mergedSourceIdsRaw,
         status: KeywordStatus.tracking,
@@ -169,6 +257,12 @@ export async function generateSecondaryKeywordsForPrimaryKeywords(
   }
 
   await recomputeSecondaryKeywordMetrics([...touchedSecondaryKeywordIds]);
+  await cleanupStaleSecondaryKeywordRelations(
+    parentKeywords,
+    freshCandidatesByParent,
+    providerMode,
+    touchedSecondaryKeywordIds,
+  );
 
   const evaluation = await summarizeSecondaryKeywordStatuses([...touchedSecondaryKeywordIds]);
 
@@ -177,6 +271,8 @@ export async function generateSecondaryKeywordsForPrimaryKeywords(
     secondaryKeywordCount: allCandidates.length,
     acceptedSecondaryKeywordCount: evaluation.acceptedCount,
     blockedSecondaryKeywordCount: evaluation.blockedCount,
+    cachedParentKeywordCount,
+    fetchedParentKeywordCount,
     failedQueryCount: failedQueries.length,
   };
 }
@@ -317,6 +413,27 @@ function classifySecondaryKeywordStatus({
   return KeywordStatus.tracking;
 }
 
+function getRecentCachedSuggestResults(
+  entries: Array<{
+    suggestedKeywordId: number;
+    fetchedAt: Date;
+    rank: number;
+  }>,
+  cacheTtlHours: number,
+  limitPerKeyword: number,
+) {
+  const minFetchedAt = Date.now() - cacheTtlHours * 60 * 60 * 1000;
+
+  return entries
+    .filter((entry) => entry.fetchedAt.getTime() >= minFetchedAt)
+    .sort((left, right) => left.rank - right.rank)
+    .slice(0, limitPerKeyword);
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function summarizeSecondaryKeywordStatuses(keywordIds: number[]) {
   if (keywordIds.length === 0) {
     return {
@@ -343,6 +460,81 @@ async function summarizeSecondaryKeywordStatuses(keywordIds: number[]) {
     acceptedCount: keywords.length - blockedCount,
     blockedCount,
   };
+}
+
+async function cleanupStaleSecondaryKeywordRelations(
+  parentKeywords: Array<{
+    id: number;
+  }>,
+  freshCandidatesByParent: Map<number, SecondaryKeywordCandidate[]>,
+  providerMode: "suggest" | "trends",
+  touchedSecondaryKeywordIds: Set<number>,
+) {
+  const activeProviders =
+    providerMode === "trends"
+      ? ["google_trends_top", "google_trends_rising"]
+      : ["google_suggest"];
+
+  for (const parentKeyword of parentKeywords) {
+    const currentCandidates = freshCandidatesByParent.get(parentKeyword.id);
+
+    if (!currentCandidates) {
+      continue;
+    }
+
+    const normalizedTexts = new Set(currentCandidates.map((candidate) => candidate.normalizedText));
+    const existingRelations = await prisma.keywordSuggestResult.findMany({
+      where: {
+        parentKeywordId: parentKeyword.id,
+        provider: {
+          in: activeProviders,
+        },
+      },
+      include: {
+        suggestedKeyword: {
+          select: {
+            id: true,
+            normalizedText: true,
+            parentKeywordId: true,
+          },
+        },
+      },
+    });
+
+    const staleKeywordIds = existingRelations
+      .filter((relation) => !normalizedTexts.has(relation.suggestedKeyword.normalizedText))
+      .map((relation) => relation.suggestedKeywordId);
+
+    if (staleKeywordIds.length === 0) {
+      continue;
+    }
+
+    await prisma.keywordSuggestResult.deleteMany({
+      where: {
+        parentKeywordId: parentKeyword.id,
+        suggestedKeywordId: {
+          in: staleKeywordIds,
+        },
+        provider: {
+          in: activeProviders,
+        },
+      },
+    });
+
+    await prisma.keyword.updateMany({
+      where: {
+        id: {
+          in: staleKeywordIds,
+        },
+        parentKeywordId: parentKeyword.id,
+      },
+      data: {
+        status: KeywordStatus.blocked,
+      },
+    });
+
+    staleKeywordIds.forEach((id) => touchedSecondaryKeywordIds.add(id));
+  }
 }
 
 export async function getSecondaryKeywordsForPrimaryKeyword(parentKeywordId: number) {

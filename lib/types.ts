@@ -39,5 +39,8 @@ export type SecondaryKeywordCandidate = {
   text: string;
   normalizedText: string;
   rank: number;
-  provider: "google_suggest";
+  provider:
+    | "google_suggest"
+    | "google_trends_top"
+    | "google_trends_rising";
 };

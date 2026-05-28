@@ -5,12 +5,23 @@ import { runTrackedFullPipeline } from "@/lib/full-pipeline-service";
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => null)) as
-      | {
+        | {
           sourceIds?: string[];
           maxPrimaryKeywords?: number;
           maxSecondaryAnalyses?: number;
           limitPerPrimary?: number;
           publishEligible?: boolean;
+          endAt?:
+            | "ingest"
+            | "primary"
+            | "secondary"
+            | "analysis"
+            | "hubs"
+            | "pages"
+            | "publish";
+          skipIngest?: boolean;
+          primarySelection?: "auto" | "manual";
+          secondaryForceRefresh?: boolean;
           startFrom?:
             | "ingest"
             | "primary"
@@ -28,6 +39,10 @@ export async function POST(request: Request) {
       maxSecondaryAnalyses: body?.maxSecondaryAnalyses,
       limitPerPrimary: body?.limitPerPrimary,
       publishEligible: body?.publishEligible,
+      endAt: body?.endAt,
+      skipIngest: body?.skipIngest,
+      primarySelection: body?.primarySelection,
+      secondaryForceRefresh: body?.secondaryForceRefresh,
       startFrom: body?.startFrom,
     };
 

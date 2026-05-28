@@ -5,6 +5,7 @@ import { clusterSecondaryKeywords } from "@/lib/hub-service";
 import { ingestSource } from "@/lib/ingestion-service";
 import { generateKeywordAnalysesForKeywords } from "@/lib/keyword-analysis-service";
 import { generatePrimaryKeywordsForSources } from "@/lib/keyword-service";
+import { getManualPrimaryKeywords } from "@/lib/keyword-repository";
 import {
   appendPipelineRunLog,
   cancelCompletedPipelineRun,
@@ -31,6 +32,9 @@ const STAGE_ORDER: PipelineStep["id"][] = [
   "publish",
 ];
 
+type PrimarySelectionMode = "auto" | "manual";
+type StageDisposition = "before" | "run" | "after";
+
 type FullPipelineOptions = {
   sourceIds?: string[];
   maxPrimaryKeywords?: number;
@@ -38,6 +42,10 @@ type FullPipelineOptions = {
   limitPerPrimary?: number;
   publishEligible?: boolean;
   startFrom?: PipelineStep["id"];
+  endAt?: PipelineStep["id"];
+  skipIngest?: boolean;
+  primarySelection?: PrimarySelectionMode;
+  secondaryForceRefresh?: boolean;
 };
 
 type IngestionSuccess = {
@@ -68,6 +76,7 @@ type FullPipelineHooks = {
 type KeywordWithMetrics = {
   id: number;
   text: string;
+  normalizedText?: string;
   pinned: boolean;
   pinnedAt: Date | null;
   lastSeenAt: Date;
@@ -153,19 +162,48 @@ async function getReusableSecondaryKeywords(primaryKeywordIds: number[], limit: 
   return keywords.sort(compareKeywordPriority).slice(0, limit);
 }
 
+function createStageDispositionResolver(startFrom: PipelineStep["id"], endAt: PipelineStep["id"]) {
+  const startIndex = Math.max(0, STAGE_ORDER.indexOf(startFrom));
+  const endIndex = Math.max(startIndex, STAGE_ORDER.indexOf(endAt));
+
+  return {
+    startIndex,
+    endIndex,
+    resolve(stepId: PipelineStep["id"]): StageDisposition {
+      const index = STAGE_ORDER.indexOf(stepId);
+
+      if (index < startIndex) {
+        return "before";
+      }
+
+      if (index > endIndex) {
+        return "after";
+      }
+
+      return "run";
+    },
+  };
+}
+
 export async function runFullPipeline(
   options: FullPipelineOptions = {},
   hooks: FullPipelineHooks = {},
 ) {
-  const sourceIds = options.sourceIds?.length ? options.sourceIds : [...DEFAULT_SOURCE_IDS];
+  const skipIngest = options.skipIngest ?? false;
+  const sourceIds = skipIngest
+    ? []
+    : options.sourceIds?.length
+      ? options.sourceIds
+      : [...DEFAULT_SOURCE_IDS];
   const maxPrimaryKeywords = options.maxPrimaryKeywords ?? 8;
   const maxSecondaryAnalyses = options.maxSecondaryAnalyses ?? 24;
   const limitPerPrimary = options.limitPerPrimary ?? 10;
   const publishEligible = options.publishEligible ?? true;
   const startFrom = options.startFrom ?? "ingest";
-  const startIndex = Math.max(0, STAGE_ORDER.indexOf(startFrom));
-  const shouldRunStage = (stepId: PipelineStep["id"]) =>
-    STAGE_ORDER.indexOf(stepId) >= startIndex;
+  const endAt = options.endAt ?? "publish";
+  const primarySelection = options.primarySelection ?? "auto";
+  const secondaryForceRefresh = options.secondaryForceRefresh ?? false;
+  const stageResolver = createStageDispositionResolver(startFrom, endAt);
   const notify = async (update: StageUpdate) => {
     await hooks.onStageUpdate?.(update);
   };
@@ -175,7 +213,7 @@ export async function runFullPipeline(
 
   const ingestion: Array<IngestionSuccess | IngestionFailure> = [];
   let successfulSourceIds = [...sourceIds];
-  let selectedPrimaryKeywords: Array<KeywordWithMetrics & { normalizedText?: string }> = [];
+  let selectedPrimaryKeywords: KeywordWithMetrics[] = [];
   let selectedPrimaryKeywordIds: number[] = [];
   let selectedSecondaryKeywords: Array<
     KeywordWithMetrics & { analyses: Array<{ generatedAt: Date }> }
@@ -200,6 +238,8 @@ export async function runFullPipeline(
         secondaryKeywordCount: number;
         acceptedSecondaryKeywordCount: number;
         blockedSecondaryKeywordCount: number;
+        cachedParentKeywordCount: number;
+        fetchedParentKeywordCount: number;
         failedQueryCount: number;
       };
 
@@ -213,7 +253,8 @@ export async function runFullPipeline(
         reason: string;
       };
 
-  if (shouldRunStage("ingest")) {
+  const ingestDisposition = stageResolver.resolve("ingest");
+  if (ingestDisposition === "run" && !skipIngest) {
     await assertContinuable();
     await notify({ stepId: "ingest", status: "running" });
 
@@ -254,55 +295,89 @@ export async function runFullPipeline(
     await notify({
       stepId: "ingest",
       status: "skipped",
-      summary: "Skipped ingestion and reused existing raw documents",
+      summary:
+        ingestDisposition === "before"
+          ? "Skipped ingestion and reused existing raw documents"
+          : skipIngest
+            ? "Manual expansion mode: source ingestion disabled"
+            : `Pipeline target reached after ${endAt}`,
     });
   }
 
-  if (shouldRunStage("primary")) {
+  const primaryDisposition = stageResolver.resolve("primary");
+  if (primaryDisposition === "run") {
     await assertContinuable();
     await notify({ stepId: "primary", status: "running" });
 
-    primaryResult = await generatePrimaryKeywordsForSources(successfulSourceIds);
-    const primaryKeywords = await prisma.keyword.findMany({
-      where: {
-        level: KeywordLevel.primary,
-        status: {
-          in: [KeywordStatus.tracking, KeywordStatus.analyzed],
-        },
-        normalizedText: {
-          in: primaryResult.keywords.map((keyword) => keyword.normalizedText),
-        },
-      },
-      include: {
-        metrics: {
-          orderBy: {
-            metricDate: "desc",
+    if (primarySelection === "manual") {
+      selectedPrimaryKeywords = await getManualPrimaryKeywords(maxPrimaryKeywords);
+      primaryResult = {
+        sourceIds: [],
+        sourceCount: 0,
+        documentCount: 0,
+        keywordCount: selectedPrimaryKeywords.length,
+        keywords: selectedPrimaryKeywords.map((keyword) => ({
+          normalizedText: keyword.normalizedText ?? keyword.text,
+        })),
+      };
+    } else {
+      primaryResult = await generatePrimaryKeywordsForSources(successfulSourceIds);
+      const primaryKeywords = await prisma.keyword.findMany({
+        where: {
+          level: KeywordLevel.primary,
+          status: {
+            in: [KeywordStatus.tracking, KeywordStatus.analyzed],
           },
-          take: 1,
+          normalizedText: {
+            in: primaryResult.keywords.map((keyword) => keyword.normalizedText),
+          },
         },
-      },
-    });
+        include: {
+          metrics: {
+            orderBy: {
+              metricDate: "desc",
+            },
+            take: 1,
+          },
+        },
+      });
 
-    selectedPrimaryKeywords = primaryKeywords
-      .sort(compareKeywordPriority)
-      .slice(0, maxPrimaryKeywords);
+      selectedPrimaryKeywords = primaryKeywords
+        .sort(compareKeywordPriority)
+        .slice(0, maxPrimaryKeywords);
+    }
+
     selectedPrimaryKeywordIds = selectedPrimaryKeywords.map((keyword) => keyword.id);
 
     if (selectedPrimaryKeywordIds.length === 0) {
-      throw new Error("Full pipeline aborted: no eligible primary keywords found");
+      throw new Error(
+        primarySelection === "manual"
+          ? "Manual expansion aborted: no manual primary keywords found"
+          : "Full pipeline aborted: no eligible primary keywords found",
+      );
     }
 
     await notify({
       stepId: "primary",
       status: "completed",
-      summary: `${selectedPrimaryKeywordIds.length} primary keywords selected`,
+      summary:
+        primarySelection === "manual"
+          ? `${selectedPrimaryKeywordIds.length} manual primary keywords selected`
+          : `${selectedPrimaryKeywordIds.length} primary keywords selected`,
     });
-  } else {
-    selectedPrimaryKeywords = await getReusablePrimaryKeywords(maxPrimaryKeywords);
+  } else if (primaryDisposition === "before") {
+    selectedPrimaryKeywords =
+      primarySelection === "manual"
+        ? await getManualPrimaryKeywords(maxPrimaryKeywords)
+        : await getReusablePrimaryKeywords(maxPrimaryKeywords);
     selectedPrimaryKeywordIds = selectedPrimaryKeywords.map((keyword) => keyword.id);
 
     if (selectedPrimaryKeywordIds.length === 0) {
-      throw new Error("No reusable primary keywords found to resume the pipeline");
+      throw new Error(
+        primarySelection === "manual"
+          ? "No manual primary keywords found to continue the pipeline"
+          : "No reusable primary keywords found to resume the pipeline",
+      );
     }
 
     primaryResult = {
@@ -311,24 +386,46 @@ export async function runFullPipeline(
       documentCount: 0,
       keywordCount: selectedPrimaryKeywordIds.length,
       keywords: selectedPrimaryKeywords.map((keyword) => ({
-        normalizedText: keyword.text,
+        normalizedText: keyword.normalizedText ?? keyword.text,
       })),
     };
 
     await notify({
       stepId: "primary",
       status: "skipped",
-      summary: `${selectedPrimaryKeywordIds.length} existing primary keywords reused`,
+      summary:
+        primarySelection === "manual"
+          ? `${selectedPrimaryKeywordIds.length} manual primary keywords reused`
+          : `${selectedPrimaryKeywordIds.length} existing primary keywords reused`,
+    });
+  } else {
+    primaryResult = {
+      sourceIds: successfulSourceIds,
+      sourceCount: successfulSourceIds.length,
+      documentCount: 0,
+      keywordCount: 0,
+      keywords: [],
+    };
+
+    await notify({
+      stepId: "primary",
+      status: "skipped",
+      summary: `Pipeline target reached after ${endAt}`,
     });
   }
 
-  if (shouldRunStage("secondary")) {
+  const secondaryDisposition = stageResolver.resolve("secondary");
+  if (secondaryDisposition === "run") {
     await assertContinuable();
     await notify({ stepId: "secondary", status: "running" });
 
     secondaryResult = await generateSecondaryKeywordsForPrimaryKeywords(
       selectedPrimaryKeywordIds,
       limitPerPrimary,
+      {
+        forceRefresh: secondaryForceRefresh,
+        providerMode: primarySelection === "manual" ? "trends" : "suggest",
+      },
     );
     selectedSecondaryKeywords = await getReusableSecondaryKeywords(
       selectedPrimaryKeywordIds,
@@ -339,9 +436,9 @@ export async function runFullPipeline(
     await notify({
       stepId: "secondary",
       status: "completed",
-      summary: `${selectedSecondaryKeywordIds.length} secondary keywords selected`,
+      summary: `${selectedSecondaryKeywordIds.length} secondary keywords selected (${secondaryResult.cachedParentKeywordCount} cached, ${secondaryResult.fetchedParentKeywordCount} fetched, ${secondaryResult.failedQueryCount} failed)`,
     });
-  } else {
+  } else if (secondaryDisposition === "before") {
     selectedSecondaryKeywords = await getReusableSecondaryKeywords(
       selectedPrimaryKeywordIds,
       maxSecondaryAnalyses,
@@ -357,6 +454,8 @@ export async function runFullPipeline(
       secondaryKeywordCount: selectedSecondaryKeywordIds.length,
       acceptedSecondaryKeywordCount: selectedSecondaryKeywordIds.length,
       blockedSecondaryKeywordCount: 0,
+      cachedParentKeywordCount: selectedPrimaryKeywordIds.length,
+      fetchedParentKeywordCount: 0,
       failedQueryCount: 0,
     };
 
@@ -365,9 +464,26 @@ export async function runFullPipeline(
       status: "skipped",
       summary: `${selectedSecondaryKeywordIds.length} existing secondary keywords reused`,
     });
+  } else {
+    secondaryResult = {
+      parentKeywordCount: selectedPrimaryKeywordIds.length,
+      secondaryKeywordCount: 0,
+      acceptedSecondaryKeywordCount: 0,
+      blockedSecondaryKeywordCount: 0,
+      cachedParentKeywordCount: 0,
+      fetchedParentKeywordCount: 0,
+      failedQueryCount: 0,
+    };
+
+    await notify({
+      stepId: "secondary",
+      status: "skipped",
+      summary: `Pipeline target reached after ${endAt}`,
+    });
   }
 
-  if (shouldRunStage("analysis")) {
+  const analysisDisposition = stageResolver.resolve("analysis");
+  if (analysisDisposition === "run") {
     await assertContinuable();
     await notify({ stepId: "analysis", status: "running" });
 
@@ -396,7 +512,10 @@ export async function runFullPipeline(
   } else {
     analysisResult = {
       skipped: true,
-      reason: "Existing analyzed keywords reused",
+      reason:
+        analysisDisposition === "before"
+          ? "Existing analyzed keywords reused"
+          : `Pipeline target reached after ${endAt}`,
     };
     await notify({
       stepId: "analysis",
@@ -422,23 +541,27 @@ export async function runFullPipeline(
   });
   analyzedSecondaryIds = analyzedSecondaryKeywords.map((keyword) => keyword.id);
 
-  if (shouldRunStage("hubs")) {
+  const hubDisposition = stageResolver.resolve("hubs");
+  if (hubDisposition === "run") {
     await assertContinuable();
     await notify({ stepId: "hubs", status: "running" });
   } else {
     await notify({
       stepId: "hubs",
       status: "skipped",
-      summary: "Existing hub clusters reused",
+      summary:
+        hubDisposition === "before"
+          ? "Existing hub clusters reused"
+          : `Pipeline target reached after ${endAt}`,
     });
   }
 
   const hubResult =
-    shouldRunStage("hubs") && analyzedSecondaryIds.length > 0
+    hubDisposition === "run" && analyzedSecondaryIds.length > 0
       ? await clusterSecondaryKeywords(analyzedSecondaryIds)
       : { hubCount: 0, mappedKeywordCount: 0 };
 
-  if (shouldRunStage("hubs")) {
+  if (hubDisposition === "run") {
     await notify({
       stepId: "hubs",
       status: "completed",
@@ -446,23 +569,27 @@ export async function runFullPipeline(
     });
   }
 
-  if (shouldRunStage("pages")) {
+  const pageDisposition = stageResolver.resolve("pages");
+  if (pageDisposition === "run") {
     await assertContinuable();
     await notify({ stepId: "pages", status: "running" });
   } else {
     await notify({
       stepId: "pages",
       status: "skipped",
-      summary: "Existing generated pages reused",
+      summary:
+        pageDisposition === "before"
+          ? "Existing generated pages reused"
+          : `Pipeline target reached after ${endAt}`,
     });
   }
 
   const pageResult =
-    shouldRunStage("pages") && analyzedSecondaryIds.length > 0
+    pageDisposition === "run" && analyzedSecondaryIds.length > 0
       ? await generatePagesForKeywords(analyzedSecondaryIds)
       : { requestedCount: 0, generatedCount: 0 };
 
-  if (shouldRunStage("pages")) {
+  if (pageDisposition === "run") {
     await notify({
       stepId: "pages",
       status: "completed",
@@ -471,19 +598,23 @@ export async function runFullPipeline(
   }
 
   const publishResults = [];
+  const publishDisposition = stageResolver.resolve("publish");
 
-  if (shouldRunStage("publish")) {
+  if (publishDisposition === "run") {
     await assertContinuable();
     await notify({ stepId: "publish", status: "running" });
   } else {
     await notify({
       stepId: "publish",
       status: "skipped",
-      summary: "Publish step not re-run",
+      summary:
+        publishDisposition === "before"
+          ? "Publish step not re-run"
+          : `Pipeline target reached after ${endAt}`,
     });
   }
 
-  if (shouldRunStage("publish") && publishEligible && analyzedSecondaryIds.length > 0) {
+  if (publishDisposition === "run" && publishEligible && analyzedSecondaryIds.length > 0) {
     const generatedPages = await prisma.generatedPage.findMany({
       where: {
         keywordId: {
@@ -532,7 +663,7 @@ export async function runFullPipeline(
     }
   }
 
-  if (shouldRunStage("publish")) {
+  if (publishDisposition === "run") {
     await notify({
       stepId: "publish",
       status: publishResults.some((entry) => !entry.ok) ? "failed" : "completed",
@@ -543,6 +674,9 @@ export async function runFullPipeline(
   return {
     sourceIds,
     startFrom,
+    endAt,
+    skipIngest,
+    primarySelection,
     ingestion,
     primary: {
       ...primaryResult,
@@ -567,11 +701,17 @@ export async function runFullPipeline(
 }
 
 export async function runTrackedFullPipeline(options: FullPipelineOptions = {}) {
-  const sourceIds = options.sourceIds?.length ? options.sourceIds : [...DEFAULT_SOURCE_IDS];
+  const skipIngest = options.skipIngest ?? false;
+  const sourceIds = skipIngest
+    ? []
+    : options.sourceIds?.length
+      ? options.sourceIds
+      : [...DEFAULT_SOURCE_IDS];
   const run = await createPipelineRun(sourceIds);
   const steps = createInitialPipelineSteps();
   const startFrom = options.startFrom ?? "ingest";
-  const startIndex = Math.max(0, STAGE_ORDER.indexOf(startFrom));
+  const endAt = options.endAt ?? "publish";
+  const stageResolver = createStageDispositionResolver(startFrom, endAt);
 
   async function syncSteps() {
     await updatePipelineRunSteps(run.id, steps);
@@ -611,10 +751,10 @@ export async function runTrackedFullPipeline(options: FullPipelineOptions = {}) 
     Object.assign(target, patch);
   }
 
-  if (startIndex > 0) {
+  if (stageResolver.startIndex > 0) {
     const skippedAt = new Date().toISOString();
 
-    for (const step of steps.slice(0, startIndex)) {
+    for (const step of steps.slice(0, stageResolver.startIndex)) {
       step.status = "skipped";
       step.summary = "Reused previous successful stage output";
       step.finishedAt = skippedAt;
@@ -622,6 +762,15 @@ export async function runTrackedFullPipeline(options: FullPipelineOptions = {}) 
 
     await syncSteps();
     await appendLog("warn", `Pipeline resumed from stage: ${startFrom}`);
+  }
+
+  await appendLog(
+    "info",
+    `Run mode: ${options.primarySelection === "manual" ? "manual-primary" : "auto"} | ingest ${skipIngest ? "off" : "on"} | start ${startFrom} | end ${endAt}${options.secondaryForceRefresh ? " | secondary refresh on" : ""}`,
+  );
+
+  if (stageResolver.endIndex < STAGE_ORDER.length - 1) {
+    await appendLog("warn", `Pipeline target stage limited to: ${endAt}`);
   }
 
   try {

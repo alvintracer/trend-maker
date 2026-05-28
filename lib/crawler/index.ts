@@ -1,3 +1,4 @@
+import { dcinsideDcbestCrawler } from "@/lib/crawler/dcinside-dcbest";
 import { dcinsideCrawler } from "@/lib/crawler/dcinside";
 import { dogdripCrawler } from "@/lib/crawler/dogdrip";
 import { fmkoreaCrawler } from "@/lib/crawler/fmkorea";
@@ -6,6 +7,7 @@ import type { SourceCrawler } from "@/lib/crawler/types";
 
 const crawlerRegistry: Record<string, SourceCrawler> = {
   dcinside: dcinsideCrawler,
+  "dcinside-dcbest": dcinsideDcbestCrawler,
   fmkorea: fmkoreaCrawler,
   mlbpark: mlbparkCrawler,
   dogdrip: dogdripCrawler,

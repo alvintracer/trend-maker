@@ -17,7 +17,9 @@ async function main() {
     throw new Error("No primary keyword available for secondary verification");
   }
 
-  const result = await generateSecondaryKeywordsForPrimaryKeywords([primaryKeyword.id], 10);
+  const result = await generateSecondaryKeywordsForPrimaryKeywords([primaryKeyword.id], 10, {
+    providerMode: "trends",
+  });
   const secondaryKeywords = await prisma.keywordSuggestResult.findMany({
     where: {
       parentKeywordId: primaryKeyword.id,

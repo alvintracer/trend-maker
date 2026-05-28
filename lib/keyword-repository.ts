@@ -90,7 +90,16 @@ export async function setKeywordPinned(keywordId: number, pinned: boolean) {
   });
 }
 
-export async function createManualPrimaryKeyword(text: string) {
+type CreateManualPrimaryKeywordInput = {
+  text: string;
+  region?: string;
+  language?: string;
+};
+
+export async function createManualPrimaryKeyword(input: string | CreateManualPrimaryKeywordInput) {
+  const text = typeof input === "string" ? input : input.text;
+  const region = typeof input === "string" ? "KR" : input.region ?? "KR";
+  const language = typeof input === "string" ? "ko" : input.language ?? "ko";
   const normalizedText = normalizeKeyword(text);
 
   if (!normalizedText || normalizedText.length < 2) {
@@ -105,10 +114,10 @@ export async function createManualPrimaryKeyword(text: string) {
     update: {
       text,
       level: KeywordLevel.primary,
-      region: "KR",
-      language: "ko",
+      region,
+      language,
       sourceLabel: "manual",
-      sourceIdsRaw: "manual",
+      sourceIdsRaw: `manual:${region.toLowerCase()}`,
       isManual: true,
       pinned: true,
       pinnedAt: new Date(),
@@ -119,10 +128,10 @@ export async function createManualPrimaryKeyword(text: string) {
       text,
       normalizedText,
       level: KeywordLevel.primary,
-      region: "KR",
-      language: "ko",
+      region,
+      language,
       sourceLabel: "manual",
-      sourceIdsRaw: "manual",
+      sourceIdsRaw: `manual:${region.toLowerCase()}`,
       isManual: true,
       pinned: true,
       pinnedAt: new Date(),
@@ -154,6 +163,18 @@ export async function createManualPrimaryKeyword(text: string) {
   });
 
   return keyword;
+}
+
+export async function createManualPrimaryKeywords(
+  entries: Array<CreateManualPrimaryKeywordInput>,
+) {
+  const created = [];
+
+  for (const entry of entries) {
+    created.push(await createManualPrimaryKeyword(entry));
+  }
+
+  return created;
 }
 
 export async function deleteManualPrimaryKeyword(keywordId: number) {
@@ -250,6 +271,29 @@ export async function getPinnedPrimaryKeywords(limit = 12) {
     sort: "pinned",
     pinnedOnly: true,
   });
+}
+
+export async function getManualPrimaryKeywords(limit = 50) {
+  const keywords = await prisma.keyword.findMany({
+    where: {
+      level: KeywordLevel.primary,
+      isManual: true,
+      status: {
+        in: [KeywordStatus.tracking, KeywordStatus.analyzed],
+      },
+    },
+    include: {
+      metrics: {
+        orderBy: {
+          metricDate: "desc",
+        },
+        take: 1,
+      },
+    },
+    take: 300,
+  });
+
+  return keywords.sort((left, right) => compareKeywords(left, right, "pinned")).slice(0, limit);
 }
 
 export type TertiaryKeywordQuery = {

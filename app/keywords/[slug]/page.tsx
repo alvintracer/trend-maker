@@ -54,7 +54,7 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
   }
 
   const latestAnalysis = page.keyword.analyses[0];
-  const faq = parseGeneratedPageArray(page.faqRaw);
+  const bodyParagraphs = parseGeneratedPageArray(page.faqRaw);
   const relatedKeywords = parseGeneratedPageArray(page.relatedKeywordsRaw);
   const tertiaryKeywords = page.keyword.childKeywords;
   const metric = page.keyword.metrics[0];
@@ -131,19 +131,37 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
 
           <div className="grid gap-6">
             <StatCard label="Last Generated" value={formatDate(page.lastGeneratedAt)} />
-            <StatCard label="FAQ Count" value={String(faq.length)} />
+            <StatCard label="Body Blocks" value={String(bodyParagraphs.length)} />
             <StatCard label="Related Terms" value={String(relatedKeywords.length)} />
           </div>
         </section>
 
         <PublicAdSlot slotKey="detail_inline_native" enabled={adSettings.detail_inline_native} />
 
+        <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)]">
+          <h2 className="text-xl font-semibold tracking-tight">본문</h2>
+          <div className="mt-4 grid gap-4">
+            {bodyParagraphs.length > 0 ? (
+              bodyParagraphs.map((paragraph, index) => (
+                <div
+                  key={`${paragraph}-${index}`}
+                  className="rounded-2xl border border-black/8 bg-stone-50/80 px-5 py-4 text-sm leading-7 text-slate-800"
+                >
+                  {paragraph}
+                </div>
+              ))
+            ) : (
+              <div className="text-sm text-slate-500">No body blocks generated yet.</div>
+            )}
+          </div>
+        </section>
+
         <section className="grid gap-6 lg:grid-cols-2">
           <div className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)]">
             <h2 className="text-xl font-semibold tracking-tight">Related Keywords</h2>
             <div className="mt-4 flex flex-wrap gap-2">
               {relatedKeywords.length > 0 ? (
-                relatedKeywords.map((keyword) => <Chip key={keyword}>{keyword}</Chip>)
+                relatedKeywords.map((keyword, index) => <Chip key={`${keyword}-${index}`}>{keyword}</Chip>)
               ) : (
                 <div className="text-sm text-slate-500">No related keywords</div>
               )}
@@ -173,10 +191,10 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
         </section>
 
         <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)]">
-          <h2 className="text-xl font-semibold tracking-tight">Questions People Ask</h2>
+          <h2 className="text-xl font-semibold tracking-tight">본문 포인트</h2>
           <div className="mt-4 grid gap-3">
-            {faq.length > 0 ? (
-              faq.map((question) => (
+            {bodyParagraphs.length > 0 ? (
+              bodyParagraphs.slice(0, 4).map((question) => (
                 <div
                   key={question}
                   className="rounded-2xl border border-black/8 bg-stone-50/80 px-4 py-3 text-sm font-medium text-slate-800"

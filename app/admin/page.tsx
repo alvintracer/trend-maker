@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { ingestDcbestAction } from "@/app/admin/ingest-actions";
 import { updateAdSlotEnabledAction } from "@/app/admin/ad-actions";
 import { PipelinePanel } from "@/components/admin/pipeline-panel";
 import {
+  bulkImportManualPrimaryKeywordsAction,
   createManualPrimaryKeywordAction,
   deleteManualPrimaryKeywordAction,
   updateKeywordPinnedAction,
@@ -16,8 +18,6 @@ import {
   getTopPrimaryKeywords,
   parseKeywordSourceIds,
 } from "@/lib/keyword-repository";
-import { pipelineStages } from "@/lib/seed-data";
-import { getSourceStats, getSources } from "@/lib/source-repository";
 
 export const metadata: Metadata = {
   title: "Admin",
@@ -29,22 +29,18 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminPage() {
-  const [sources, stats, keywords, pinnedKeywords, adSettings, latestPipelineRun] = await Promise.all([
-    getSources(),
-    getSourceStats(),
+  const [keywords, pinnedKeywords, adSettings, latestPipelineRun] = await Promise.all([
     getTopPrimaryKeywords(),
     getPinnedPrimaryKeywords(8),
     getAdSlotSettingsMap(),
     getLatestPipelineRun(),
   ]);
-  const sourceNameById = new Map(sources.map((source) => [source.externalId, source.name]));
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,#e8f5e9_0%,#f5f1e8_45%,#f8f7f2_100%)] text-slate-950">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-10 px-6 py-10 lg:px-10">
-        <section className="grid gap-6 lg:grid-cols-[1.4fr_0.8fr]">
-          <div className="rounded-[28px] border border-black/10 bg-white/85 p-8 shadow-[0_24px_80px_rgba(63,63,38,0.12)] backdrop-blur">
-            <div className="flex items-center justify-between">
+        <section className="rounded-[28px] border border-black/10 bg-white/85 p-8 shadow-[0_24px_80px_rgba(63,63,38,0.12)] backdrop-blur">
+          <div className="flex items-center justify-between">
               <span className="rounded-full border border-emerald-900/15 bg-emerald-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-900">
                 Admin
               </span>
@@ -55,33 +51,15 @@ export default async function AdminPage() {
                 Public Home
               </Link>
             </div>
-            <div className="mt-8 max-w-3xl">
-              <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-                CommunityWikiKorea operations dashboard.
-              </h1>
-              <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">
-                Source inventory, crawler health, primary keyword pins, and pipeline progress
-                live here. Keep this route for internal workflow and review.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-1">
-            <StatCard
-              label="Sources"
-              value={String(stats.totalCount)}
-              detail={`${stats.activeCount} active`}
-            />
-            <StatCard
-              label="Avg Trust"
-              value={`${stats.averageTrustScore}`}
-              detail="manual bootstrap score"
-            />
-            <StatCard
-              label="Raw Docs"
-              value={`${stats.rawDocumentCount}`}
-              detail="stored list snapshots"
-            />
+          <div className="mt-8 max-w-3xl">
+            <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
+              Google Trends primary and expansion dashboard.
+            </h1>
+            <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">
+              Community crawling is no longer the default path. Register manual seeds by country,
+              expand them with Google Trends related top and rising queries, and monitor the run
+              from here.
+            </p>
           </div>
         </section>
 
@@ -90,12 +68,42 @@ export default async function AdminPage() {
         <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
+              <h2 className="text-xl font-semibold tracking-tight">DCBest Browser Ingest</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Crawl DCInside DCBest pages 1 through 5 with Playwright and store row-level text
+                snapshots for page composition.
+              </p>
+            </div>
+            <form action={ingestDcbestAction}>
+              <button
+                className="rounded-full bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
+                type="submit"
+              >
+                Ingest DCBest 1-5
+              </button>
+            </form>
+          </div>
+        </section>
+
+        <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
               <h2 className="text-xl font-semibold tracking-tight">Manual Primary Keywords</h2>
               <p className="mt-1 text-sm text-slate-600">
-                Seed priority topics before the first crawl. These are available from stage 0.
+                Seed topics here first. The recommended pipeline now starts from these keywords
+                without crawling.
               </p>
             </div>
             <form action={createManualPrimaryKeywordAction} className="flex flex-wrap gap-3">
+              <select
+                name="region"
+                defaultValue="KR"
+                className="rounded-full border border-black/10 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition-colors focus:border-slate-400"
+              >
+                <option value="KR">KR</option>
+                <option value="JP">JP</option>
+              </select>
+              <input type="hidden" name="language" value="ko" />
               <input
                 type="text"
                 name="text"
@@ -111,6 +119,27 @@ export default async function AdminPage() {
             </form>
           </div>
 
+          <form action={bulkImportManualPrimaryKeywordsAction} className="mt-4 rounded-[24px] border border-black/10 bg-stone-50/70 p-4">
+            <div className="text-sm font-semibold text-slate-900">Bulk Import By Country</div>
+            <p className="mt-1 text-sm text-slate-600">
+              Paste blocks like `[한국]`, `[일본]` and list one keyword per line.
+            </p>
+            <textarea
+              name="bulkText"
+              rows={8}
+              placeholder={"[한국]\n마사지 후기\n디시 후기\n\n[일본]\nおすすめ\n正直"}
+              className="mt-3 w-full rounded-[20px] border border-black/10 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition-colors focus:border-slate-400"
+            />
+            <div className="mt-3 flex justify-end">
+              <button
+                className="rounded-full bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
+                type="submit"
+              >
+                Import Block
+              </button>
+            </div>
+          </form>
+
           <div className="mt-5 grid gap-3 lg:grid-cols-2">
             {pinnedKeywords.filter((keyword) => keyword.isManual).length > 0 ? (
               pinnedKeywords
@@ -123,7 +152,9 @@ export default async function AdminPage() {
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <div className="text-base font-semibold text-slate-950">{keyword.text}</div>
-                        <div className="mt-1 text-xs text-slate-500">{keyword.normalizedText}</div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          {keyword.region} · {keyword.language} · {keyword.normalizedText}
+                        </div>
                       </div>
                       <form action={deleteManualPrimaryKeywordAction}>
                         <input type="hidden" name="keywordId" value={String(keyword.id)} />
@@ -154,12 +185,7 @@ export default async function AdminPage() {
                   Hand-picked keywords surfaced directly from the primary keyword inventory.
                 </p>
               </div>
-              <Link
-                href="/keywords?pinned=1&sort=pinned"
-                className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/15"
-              >
-                Manage Pins
-              </Link>
+              <Link href="/keywords?pinned=1&sort=pinned" className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/15">Manage Pins</Link>
             </div>
             <div className="mt-5 grid gap-3 lg:grid-cols-2">
               {pinnedKeywords.map((keyword) => {
@@ -174,7 +200,9 @@ export default async function AdminPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-base font-semibold">{keyword.text}</div>
-                        <div className="mt-1 text-xs text-slate-300">{keyword.normalizedText}</div>
+                        <div className="mt-1 text-xs text-slate-300">
+                          {keyword.region} · {keyword.language} · {keyword.normalizedText}
+                        </div>
                       </div>
                       <form action={updateKeywordPinnedAction}>
                         <input type="hidden" name="keywordId" value={String(keyword.id)} />
@@ -193,7 +221,7 @@ export default async function AdminPage() {
                           key={sourceId}
                           className="rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-[11px] text-emerald-100"
                         >
-                          {sourceNameById.get(sourceId) ?? sourceId}
+                          {sourceId}
                         </span>
                       ))}
                     </div>
@@ -271,124 +299,12 @@ export default async function AdminPage() {
             })}
           </div>
         </section>
-
-        <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
-          <div className="rounded-[28px] border border-black/10 bg-white/80 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold tracking-tight">Registered Sources</h2>
-              <span className="text-sm text-slate-500">Initial manual inventory</span>
-            </div>
-            <div className="mt-5 grid gap-4">
-              {sources.map((source) => (
-                <article
-                  key={source.id}
-                  className="rounded-2xl border border-black/8 bg-stone-50/80 p-5 transition-transform duration-200 hover:-translate-y-0.5"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="flex items-center gap-3">
-                        <h3 className="text-lg font-semibold text-slate-900">{source.name}</h3>
-                        <StatusBadge status={source.status} />
-                        {["dcinside", "fmkorea", "mlbpark", "dogdrip"].includes(
-                          source.externalId,
-                        ) ? (
-                          <span className="rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.12em] text-white">
-                            crawler ready
-                          </span>
-                        ) : null}
-                      </div>
-                      <a
-                        href={source.url}
-                        className="mt-1 inline-block text-sm text-slate-500 hover:text-slate-900"
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {source.url}
-                      </a>
-                    </div>
-                    <div className="rounded-full bg-slate-900 px-3 py-1 text-sm font-medium text-white">
-                      trust {source.trustScore}
-                    </div>
-                  </div>
-                  <div className="mt-4 flex flex-wrap gap-2 text-xs font-medium uppercase tracking-[0.12em] text-slate-600">
-                    <Pill>{source.kind}</Pill>
-                    <Pill>{source.category}</Pill>
-                    <Pill>{source.language}</Pill>
-                    <Pill>{source.crawlIntervalHours}h</Pill>
-                  </div>
-                  <p className="mt-4 text-sm leading-6 text-slate-600">{source.notes}</p>
-                  {source.externalId === "fmkorea" ? (
-                    <div className="mt-4 rounded-2xl border border-emerald-900/10 bg-emerald-50/70 p-4">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-900">
-                          FMKorea Health
-                        </span>
-                        <CrawlStatusBadge status={source.lastCrawlStatus} />
-                        {source.lastCrawlMethod ? (
-                          <span className="rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.12em] text-white">
-                            {source.lastCrawlMethod}
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="mt-3 text-sm text-slate-700">
-                        {source.lastCrawlDetail ?? "No crawl detail yet"}
-                      </div>
-                    </div>
-                  ) : null}
-                  <div className="mt-4 flex items-center justify-between text-sm text-slate-500">
-                    <span>
-                      last crawl{" "}
-                      {source.lastCrawledAt
-                        ? new Intl.DateTimeFormat("ko-KR", {
-                            dateStyle: "short",
-                            timeStyle: "short",
-                          }).format(source.lastCrawledAt)
-                        : "not yet"}
-                    </span>
-                    <code className="rounded-lg bg-white px-2 py-1 text-[11px] text-slate-700">
-                      POST /api/ingest/{source.externalId}
-                    </code>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </div>
-
-          <div className="grid gap-6">
-            <div className="rounded-[28px] border border-black/10 bg-[#152218] p-6 text-white shadow-[0_16px_60px_rgba(24,32,22,0.22)]">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-semibold tracking-tight">Pipeline</h2>
-                <span className="text-sm text-emerald-100/80">Build order</span>
-              </div>
-              <div className="mt-5 space-y-4">
-                {pipelineStages.map((stage, index) => (
-                  <div key={stage.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                    <div className="flex items-start gap-4">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/10 text-sm font-semibold">
-                        {index + 1}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-3">
-                          <h3 className="font-semibold">{stage.name}</h3>
-                          <span className="rounded-full border border-white/10 px-2 py-0.5 text-[11px] uppercase tracking-[0.12em] text-emerald-100/80">
-                            {stage.state}
-                          </span>
-                        </div>
-                        <p className="mt-2 text-sm leading-6 text-slate-300">{stage.summary}</p>
-                        <p className="mt-2 text-sm font-medium text-emerald-200">{stage.output}</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-[28px] border border-black/10 bg-white/80 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
+        <section className="rounded-[28px] border border-black/10 bg-white/80 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-semibold tracking-tight">Primary Keywords</h2>
                 <div className="flex items-center gap-2">
                   <code className="rounded-lg bg-slate-100 px-2 py-1 text-[11px] text-slate-700">
-                    POST /api/extract/primary
+                    POST /api/extract/secondary
                   </code>
                   <Link
                     href="/keywords"
@@ -410,7 +326,9 @@ export default async function AdminPage() {
                       >
                         <div>
                           <div className="text-sm font-semibold text-slate-900">{keyword.text}</div>
-                          <div className="mt-1 text-xs text-slate-500">{keyword.normalizedText}</div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            {keyword.region} · {keyword.language} · {keyword.normalizedText}
+                          </div>
                         </div>
                         <div className="text-right">
                           <div className="text-sm font-semibold text-slate-900">
@@ -427,12 +345,10 @@ export default async function AdminPage() {
                   })
                 ) : (
                   <div className="rounded-2xl border border-dashed border-black/10 bg-stone-50/70 px-4 py-6 text-sm text-slate-500">
-                    Run ingestion for `dcinside` and `fmkorea`, then call `POST /api/extract/primary`.
+                    Add manual primary keywords above, then run `Run Manual Expansion`.
                   </div>
                 )}
               </div>
-            </div>
-          </div>
         </section>
       </div>
     </main>
@@ -445,65 +361,5 @@ function DashboardMetric({ label, value }: { label: string; value: string }) {
       <div className="text-[11px] uppercase tracking-[0.12em] text-emerald-100/70">{label}</div>
       <div className="mt-1 text-sm font-semibold text-white">{value}</div>
     </div>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  detail,
-}: {
-  label: string;
-  value: string;
-  detail: string;
-}) {
-  return (
-    <div className="rounded-[24px] border border-black/10 bg-white/80 p-5 shadow-[0_12px_40px_rgba(53,58,42,0.08)] backdrop-blur">
-      <div className="text-sm font-medium text-slate-500">{label}</div>
-      <div className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">{value}</div>
-      <div className="mt-2 text-sm text-slate-600">{detail}</div>
-    </div>
-  );
-}
-
-function Pill({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="rounded-full border border-black/10 bg-white px-2.5 py-1 text-[11px]">
-      {children}
-    </span>
-  );
-}
-
-function StatusBadge({ status }: { status: "active" | "review" | "paused" }) {
-  return (
-    <span
-      className={`rounded-full px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.12em] ${
-        status === "active"
-          ? "bg-emerald-100 text-emerald-900"
-          : status === "review"
-            ? "bg-amber-100 text-amber-900"
-            : "bg-slate-200 text-slate-700"
-      }`}
-    >
-      {status}
-    </span>
-  );
-}
-
-function CrawlStatusBadge({ status }: { status?: string | null }) {
-  const normalizedStatus = status ?? "idle";
-  const className =
-    normalizedStatus === "success"
-      ? "bg-emerald-100 text-emerald-900"
-      : normalizedStatus === "error"
-        ? "bg-rose-100 text-rose-900"
-        : "bg-slate-200 text-slate-700";
-
-  return (
-    <span
-      className={`rounded-full px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.12em] ${className}`}
-    >
-      {normalizedStatus}
-    </span>
   );
 }
