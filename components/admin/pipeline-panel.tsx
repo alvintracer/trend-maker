@@ -60,6 +60,7 @@ export function PipelinePanel({ initialRun }: { initialRun: PipelineRunView | nu
   const [message, setMessage] = useState<string | null>(null);
   const [maxPrimaryKeywords, setMaxPrimaryKeywords] = useState("30");
   const [includeIngest, setIncludeIngest] = useState(true);
+  const [includeSecondary, setIncludeSecondary] = useState(true);
   const [includePageGeneration, setIncludePageGeneration] = useState(true);
   const [includePublish, setIncludePublish] = useState(false);
   const intervalRef = useRef<number | null>(null);
@@ -165,8 +166,23 @@ export function PipelinePanel({ initialRun }: { initialRun: PipelineRunView | nu
       Number.isFinite(parsedMaxPrimaryKeywords) && parsedMaxPrimaryKeywords > 0
         ? parsedMaxPrimaryKeywords
         : 30;
-    const endAt = includePublish ? "publish" : includePageGeneration ? "pages" : "secondary";
 
+    if (!includeSecondary) {
+      const endAt = includePublish ? "publish" : "pages";
+      return {
+        startFrom: "pages",
+        endAt,
+        skipIngest: true,
+        primarySelection: "manual",
+        maxPrimaryKeywords: maxPrimary,
+        publishEligible: includePublish,
+        secondaryForceRefresh: false,
+        skipAnalysis: true,
+        skipHubs: true,
+      };
+    }
+
+    const endAt = includePublish ? "publish" : includePageGeneration ? "pages" : "secondary";
     return {
       sourceIds: includeIngest ? ["dcinside-dcbest"] : undefined,
       startFrom: includeIngest ? "ingest" : "primary",
@@ -217,14 +233,16 @@ export function PipelinePanel({ initialRun }: { initialRun: PipelineRunView | nu
           >
             {run?.status === "running" || isSubmitting ? "Batch Running..." : "Run Selected Batch"}
           </button>
-          <button
-            className="rounded-full border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-slate-800 transition-colors hover:bg-stone-100 disabled:cursor-not-allowed disabled:text-slate-400"
-            type="button"
-            disabled={isSubmitting || run?.status === "running"}
-            onClick={() => handleRun(buildManualBatchRequest(true))}
-          >
-            Refresh Trends
-          </button>
+          {includeSecondary ? (
+            <button
+              className="rounded-full border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-slate-800 transition-colors hover:bg-stone-100 disabled:cursor-not-allowed disabled:text-slate-400"
+              type="button"
+              disabled={isSubmitting || run?.status === "running"}
+              onClick={() => handleRun(buildManualBatchRequest(true))}
+            >
+              Refresh Trends
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -234,13 +252,18 @@ export function PipelinePanel({ initialRun }: { initialRun: PipelineRunView | nu
           label="DCBest Ingest"
           description="페이지 재료용 DCBest 수집 포함"
           onChange={setIncludeIngest}
+          disabled={!includeSecondary}
         />
         <BatchToggle
-          checked
-          fixed
+          checked={includeSecondary}
           label="Secondary Expansion"
-          description="manual primary에서 Trends secondary 추출"
-          onChange={() => undefined}
+          description="manual primary에서 Trends secondary 추출 (이미 수집된 경우 해제 가능)"
+          onChange={(value) => {
+            setIncludeSecondary(value);
+            if (!value) {
+              setIncludeIngest(false);
+            }
+          }}
         />
         <BatchToggle
           checked={includePageGeneration}
