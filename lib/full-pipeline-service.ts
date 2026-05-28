@@ -46,6 +46,8 @@ type FullPipelineOptions = {
   skipIngest?: boolean;
   primarySelection?: PrimarySelectionMode;
   secondaryForceRefresh?: boolean;
+  skipAnalysis?: boolean;
+  skipHubs?: boolean;
 };
 
 type IngestionSuccess = {
@@ -195,7 +197,7 @@ export async function runFullPipeline(
     : options.sourceIds?.length
       ? options.sourceIds
       : [...DEFAULT_SOURCE_IDS];
-  const maxPrimaryKeywords = options.maxPrimaryKeywords ?? 8;
+  const maxPrimaryKeywords = options.maxPrimaryKeywords ?? 30;
   const maxSecondaryAnalyses = options.maxSecondaryAnalyses ?? 24;
   const limitPerPrimary = options.limitPerPrimary ?? 10;
   const publishEligible = options.publishEligible ?? true;
@@ -203,6 +205,8 @@ export async function runFullPipeline(
   const endAt = options.endAt ?? "publish";
   const primarySelection = options.primarySelection ?? "auto";
   const secondaryForceRefresh = options.secondaryForceRefresh ?? false;
+  const skipAnalysis = options.skipAnalysis ?? false;
+  const skipHubs = options.skipHubs ?? false;
   const stageResolver = createStageDispositionResolver(startFrom, endAt);
   const notify = async (update: StageUpdate) => {
     await hooks.onStageUpdate?.(update);
@@ -487,7 +491,12 @@ export async function runFullPipeline(
     await assertContinuable();
     await notify({ stepId: "analysis", status: "running" });
 
-    if (!getOpenAIConfigured()) {
+    if (skipAnalysis) {
+      analysisResult = {
+        skipped: true,
+        reason: "Analysis disabled from admin batch",
+      };
+    } else if (!getOpenAIConfigured()) {
       analysisResult = {
         skipped: true,
         reason: "OPENAI_API_KEY is not configured",
@@ -540,6 +549,8 @@ export async function runFullPipeline(
     },
   });
   analyzedSecondaryIds = analyzedSecondaryKeywords.map((keyword) => keyword.id);
+  const pageCandidateKeywordIds =
+    analyzedSecondaryIds.length > 0 ? analyzedSecondaryIds : selectedSecondaryKeywordIds;
 
   const hubDisposition = stageResolver.resolve("hubs");
   if (hubDisposition === "run") {
@@ -557,15 +568,17 @@ export async function runFullPipeline(
   }
 
   const hubResult =
-    hubDisposition === "run" && analyzedSecondaryIds.length > 0
-      ? await clusterSecondaryKeywords(analyzedSecondaryIds)
+    hubDisposition === "run" && !skipHubs && pageCandidateKeywordIds.length > 0
+      ? await clusterSecondaryKeywords(pageCandidateKeywordIds)
       : { hubCount: 0, mappedKeywordCount: 0 };
 
   if (hubDisposition === "run") {
     await notify({
       stepId: "hubs",
-      status: "completed",
-      summary: `${hubResult.hubCount} hubs materialized`,
+      status: skipHubs ? "skipped" : "completed",
+      summary: skipHubs
+        ? "Hub clustering disabled from admin batch"
+        : `${hubResult.hubCount} hubs materialized`,
     });
   }
 
@@ -585,8 +598,8 @@ export async function runFullPipeline(
   }
 
   const pageResult =
-    pageDisposition === "run" && analyzedSecondaryIds.length > 0
-      ? await generatePagesForKeywords(analyzedSecondaryIds)
+    pageDisposition === "run" && pageCandidateKeywordIds.length > 0
+      ? await generatePagesForKeywords(pageCandidateKeywordIds)
       : { requestedCount: 0, generatedCount: 0 };
 
   if (pageDisposition === "run") {
@@ -614,11 +627,11 @@ export async function runFullPipeline(
     });
   }
 
-  if (publishDisposition === "run" && publishEligible && analyzedSecondaryIds.length > 0) {
+  if (publishDisposition === "run" && publishEligible && pageCandidateKeywordIds.length > 0) {
     const generatedPages = await prisma.generatedPage.findMany({
       where: {
         keywordId: {
-          in: analyzedSecondaryIds,
+          in: pageCandidateKeywordIds,
         },
       },
       select: {

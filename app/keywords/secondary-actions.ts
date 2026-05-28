@@ -2,9 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 
+import { assertAdminAuthenticated } from "@/lib/admin-auth";
 import { generateSecondaryKeywordsForPrimaryKeywords } from "@/lib/secondary-keyword-service";
 
 export async function generateSecondaryKeywordsAction(formData: FormData) {
+  await assertAdminAuthenticated();
   const keywordId = Number(formData.get("keywordId"));
 
   if (!Number.isFinite(keywordId) || keywordId <= 0) {
@@ -12,10 +14,12 @@ export async function generateSecondaryKeywordsAction(formData: FormData) {
   }
 
   await generateSecondaryKeywordsForPrimaryKeywords([keywordId]);
-  revalidatePath("/keywords");
+  revalidatePath("/admin");
+  revalidatePath("/admin/keywords");
 }
 
 export async function generateSecondaryKeywordsBulkAction(formData: FormData) {
+  await assertAdminAuthenticated();
   const keywordIds = formData
     .getAll("keywordIds")
     .map((value) => Number(value))
@@ -26,5 +30,6 @@ export async function generateSecondaryKeywordsBulkAction(formData: FormData) {
   }
 
   await generateSecondaryKeywordsForPrimaryKeywords(keywordIds);
-  revalidatePath("/keywords");
+  revalidatePath("/admin");
+  revalidatePath("/admin/keywords");
 }

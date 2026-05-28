@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { assertAdminAuthenticated } from "@/lib/admin-auth";
 import {
   publishGeneratedPage,
   publishHub,
@@ -10,6 +11,7 @@ import {
 } from "@/lib/publish-service";
 
 export async function publishHubAction(formData: FormData) {
+  await assertAdminAuthenticated();
   const hubId = Number(formData.get("hubId"));
 
   if (!Number.isFinite(hubId) || hubId <= 0) {
@@ -17,10 +19,13 @@ export async function publishHubAction(formData: FormData) {
   }
 
   await publishHub(hubId);
-  revalidatePath("/keywords");
+  revalidatePath("/");
+  revalidatePath("/admin");
+  revalidatePath("/admin/keywords");
 }
 
 export async function unpublishHubAction(formData: FormData) {
+  await assertAdminAuthenticated();
   const hubId = Number(formData.get("hubId"));
 
   if (!Number.isFinite(hubId) || hubId <= 0) {
@@ -28,10 +33,13 @@ export async function unpublishHubAction(formData: FormData) {
   }
 
   await unpublishHub(hubId);
-  revalidatePath("/keywords");
+  revalidatePath("/");
+  revalidatePath("/admin");
+  revalidatePath("/admin/keywords");
 }
 
 export async function publishGeneratedPageAction(formData: FormData) {
+  await assertAdminAuthenticated();
   const pageId = Number(formData.get("pageId"));
 
   if (!Number.isFinite(pageId) || pageId <= 0) {
@@ -39,10 +47,13 @@ export async function publishGeneratedPageAction(formData: FormData) {
   }
 
   await publishGeneratedPage(pageId);
-  revalidatePath("/keywords");
+  revalidatePath("/");
+  revalidatePath("/admin");
+  revalidatePath("/admin/keywords");
 }
 
 export async function unpublishGeneratedPageAction(formData: FormData) {
+  await assertAdminAuthenticated();
   const pageId = Number(formData.get("pageId"));
 
   if (!Number.isFinite(pageId) || pageId <= 0) {
@@ -50,5 +61,7 @@ export async function unpublishGeneratedPageAction(formData: FormData) {
   }
 
   await unpublishGeneratedPage(pageId);
-  revalidatePath("/keywords");
+  revalidatePath("/");
+  revalidatePath("/admin");
+  revalidatePath("/admin/keywords");
 }

@@ -1,23 +1,28 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { ingestDcbestAction } from "@/app/admin/ingest-actions";
 import { updateAdSlotEnabledAction } from "@/app/admin/ad-actions";
-import { PipelinePanel } from "@/components/admin/pipeline-panel";
+import { logoutAdminAction } from "@/app/admin/auth-actions";
+import { syncNamuInitialPageAction } from "@/app/admin/namu-actions";
 import {
   bulkImportManualPrimaryKeywordsAction,
+  bulkImportManualSecondaryKeywordsAction,
   createManualPrimaryKeywordAction,
   deleteManualPrimaryKeywordAction,
   updateKeywordPinnedAction,
 } from "@/app/keywords/actions";
+import { DcbestIngestPanel } from "@/components/admin/dcbest-ingest-panel";
+import { PipelinePanel } from "@/components/admin/pipeline-panel";
 import { getAdSlotSettingsMap } from "@/lib/ad-settings";
+import { assertAdminAuthenticated } from "@/lib/admin-auth";
 import { adSlotDefinitions } from "@/lib/adsterra";
-import { getLatestPipelineRun } from "@/lib/pipeline-run";
+import { getGeneratedPages } from "@/lib/generated-page-service";
 import {
-  getPinnedPrimaryKeywords,
-  getTopPrimaryKeywords,
-  parseKeywordSourceIds,
+  getManualPrimaryKeywords,
+  getRecentSecondaryKeywords,
 } from "@/lib/keyword-repository";
+import { getLatestPipelineRun } from "@/lib/pipeline-run";
+import { prisma } from "@/lib/prisma";
 
 export const metadata: Metadata = {
   title: "Admin",
@@ -29,229 +34,411 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminPage() {
-  const [keywords, pinnedKeywords, adSettings, latestPipelineRun] = await Promise.all([
-    getTopPrimaryKeywords(),
-    getPinnedPrimaryKeywords(8),
+  await assertAdminAuthenticated();
+
+  const [
+    manualPrimaryKeywords,
+    recentSecondaryKeywords,
+    adSettings,
+    latestPipelineRun,
+    dcbestSource,
+    dcbestDocumentCount,
+    generatedPages,
+    namuPages,
+  ] = await Promise.all([
+    getManualPrimaryKeywords(30),
+    getRecentSecondaryKeywords(16),
     getAdSlotSettingsMap(),
     getLatestPipelineRun(),
+    prisma.source.findUnique({
+      where: {
+        externalId: "dcinside-dcbest",
+      },
+      select: {
+        id: true,
+        lastCrawledAt: true,
+        lastCrawlStatus: true,
+        lastCrawlMethod: true,
+        lastCrawlDetail: true,
+      },
+    }),
+    prisma.rawDocument.count({
+      where: {
+        source: {
+          externalId: "dcinside-dcbest",
+        },
+      },
+    }),
+    getGeneratedPages(12),
+    prisma.generatedPage.findMany({
+      where: {
+        keyword: {
+          normalizedText: {
+            startsWith: "av 배우 정보",
+          },
+        },
+      },
+      include: {
+        keyword: true,
+      },
+      orderBy: {
+        updatedAt: "desc",
+      },
+      take: 8,
+    }),
   ]);
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,#e8f5e9_0%,#f5f1e8_45%,#f8f7f2_100%)] text-slate-950">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-10 px-6 py-10 lg:px-10">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-6 py-10 lg:px-10">
         <section className="rounded-[28px] border border-black/10 bg-white/85 p-8 shadow-[0_24px_80px_rgba(63,63,38,0.12)] backdrop-blur">
-          <div className="flex items-center justify-between">
-              <span className="rounded-full border border-emerald-900/15 bg-emerald-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-900">
-                Admin
-              </span>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="rounded-full border border-emerald-900/15 bg-emerald-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-900">
+              Admin
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                href="/admin/keywords"
+                className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-medium text-slate-800 transition-colors hover:bg-stone-50"
+              >
+                Keyword Inventory
+              </Link>
               <Link
                 href="/"
                 className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-medium text-slate-800 transition-colors hover:bg-stone-50"
               >
                 Public Home
               </Link>
+              <form action={logoutAdminAction}>
+                <button
+                  type="submit"
+                  className="rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
+                >
+                  Sign Out
+                </button>
+              </form>
             </div>
-          <div className="mt-8 max-w-3xl">
+          </div>
+          <div className="mt-8 max-w-4xl">
             <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-              Google Trends primary and expansion dashboard.
+              운영 페이지는 수집, 키워드 배치, 페이지 생성만 다룹니다.
             </h1>
-            <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">
-              Community crawling is no longer the default path. Register manual seeds by country,
-              expand them with Google Trends related top and rising queries, and monitor the run
-              from here.
+            <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600 sm:text-lg">
+              외부 노출은 공개 SEO 페이지가 맡고, 여기서는 DCBest 재료 수집, 최대 30개
+              primary pin, Google Trends secondary 확장, 수동 secondary 추가, 그리고 나무위키
+              초성 묶음 페이지 생성을 관리합니다.
             </p>
           </div>
         </section>
 
         <PipelinePanel initialRun={latestPipelineRun} />
 
-        <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h2 className="text-xl font-semibold tracking-tight">DCBest Browser Ingest</h2>
-              <p className="mt-1 text-sm text-slate-600">
-                Crawl DCInside DCBest pages 1 through 5 with Playwright and store row-level text
-                snapshots for page composition.
-              </p>
-            </div>
-            <form action={ingestDcbestAction}>
-              <button
-                className="rounded-full bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
-                type="submit"
-              >
-                Ingest DCBest 1-5
-              </button>
-            </form>
-          </div>
-        </section>
+        <DcbestIngestPanel
+          initial={{
+            lastCrawledAt: dcbestSource?.lastCrawledAt?.toISOString() ?? null,
+            lastCrawlStatus: dcbestSource?.lastCrawlStatus ?? null,
+            lastCrawlMethod: dcbestSource?.lastCrawlMethod ?? null,
+            lastCrawlDetail: dcbestSource?.lastCrawlDetail ?? null,
+            rawDocumentCount: dcbestDocumentCount,
+          }}
+        />
 
         <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h2 className="text-xl font-semibold tracking-tight">Manual Primary Keywords</h2>
+              <h2 className="text-xl font-semibold tracking-tight">Primary Keywords</h2>
               <p className="mt-1 text-sm text-slate-600">
-                Seed topics here first. The recommended pipeline now starts from these keywords
-                without crawling.
+                수동 primary만 운영합니다. pinned primary는 최대 30개까지 유지합니다.
               </p>
             </div>
-            <form action={createManualPrimaryKeywordAction} className="flex flex-wrap gap-3">
-              <select
-                name="region"
-                defaultValue="KR"
-                className="rounded-full border border-black/10 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition-colors focus:border-slate-400"
-              >
-                <option value="KR">KR</option>
-                <option value="JP">JP</option>
-              </select>
-              <input type="hidden" name="language" value="ko" />
-              <input
-                type="text"
-                name="text"
-                placeholder="예: 대선 토론, 아이폰 18"
-                className="min-w-[240px] rounded-full border border-black/10 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition-colors focus:border-slate-400"
+            <Link
+              href="/admin/keywords?view=primary&sort=pinned&pinned=1"
+              className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-medium text-slate-800 transition-colors hover:bg-stone-50"
+            >
+              Open Inventory
+            </Link>
+          </div>
+
+          <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_1fr]">
+            <form action={createManualPrimaryKeywordAction} className="rounded-[24px] border border-black/10 bg-stone-50/70 p-4">
+              <div className="text-sm font-semibold text-slate-900">Add One</div>
+              <div className="mt-3 flex flex-wrap gap-3">
+                <select
+                  name="region"
+                  defaultValue="KR"
+                  className="rounded-full border border-black/10 bg-white px-4 py-2.5 text-sm text-slate-900"
+                >
+                  <option value="KR">KR</option>
+                  <option value="JP">JP</option>
+                </select>
+                <input type="hidden" name="language" value="ko" />
+                <input
+                  type="text"
+                  name="text"
+                  placeholder="예: 마사지 후기"
+                  className="min-w-[220px] flex-1 rounded-full border border-black/10 bg-white px-4 py-2.5 text-sm text-slate-900"
+                />
+                <button
+                  type="submit"
+                  className="rounded-full bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
+                >
+                  Add Primary
+                </button>
+              </div>
+            </form>
+
+            <form action={bulkImportManualPrimaryKeywordsAction} className="rounded-[24px] border border-black/10 bg-stone-50/70 p-4">
+              <div className="text-sm font-semibold text-slate-900">Bulk Import</div>
+              <p className="mt-1 text-sm text-slate-600">
+                `[한국]`, `[일본]` 블록 기준으로 한 줄에 하나씩 넣습니다.
+              </p>
+              <textarea
+                name="bulkText"
+                rows={6}
+                placeholder={"[한국]\n마사지 후기\n팬트리 디시\n\n[일본]\nおすすめ"}
+                className="mt-3 w-full rounded-[20px] border border-black/10 bg-white px-4 py-3 text-sm text-slate-900"
               />
-              <button
-                className="rounded-full bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
-                type="submit"
-              >
-                Add Keyword
-              </button>
+              <div className="mt-3 flex justify-end">
+                <button
+                  type="submit"
+                  className="rounded-full bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
+                >
+                  Import Primary Block
+                </button>
+              </div>
             </form>
           </div>
-
-          <form action={bulkImportManualPrimaryKeywordsAction} className="mt-4 rounded-[24px] border border-black/10 bg-stone-50/70 p-4">
-            <div className="text-sm font-semibold text-slate-900">Bulk Import By Country</div>
-            <p className="mt-1 text-sm text-slate-600">
-              Paste blocks like `[한국]`, `[일본]` and list one keyword per line.
-            </p>
-            <textarea
-              name="bulkText"
-              rows={8}
-              placeholder={"[한국]\n마사지 후기\n디시 후기\n\n[일본]\nおすすめ\n正直"}
-              className="mt-3 w-full rounded-[20px] border border-black/10 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition-colors focus:border-slate-400"
-            />
-            <div className="mt-3 flex justify-end">
-              <button
-                className="rounded-full bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
-                type="submit"
-              >
-                Import Block
-              </button>
-            </div>
-          </form>
 
           <div className="mt-5 grid gap-3 lg:grid-cols-2">
-            {pinnedKeywords.filter((keyword) => keyword.isManual).length > 0 ? (
-              pinnedKeywords
-                .filter((keyword) => keyword.isManual)
-                .map((keyword) => (
-                  <article
-                    key={keyword.id}
-                    className="rounded-2xl border border-black/8 bg-stone-50/80 px-4 py-4"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="text-base font-semibold text-slate-950">{keyword.text}</div>
-                        <div className="mt-1 text-xs text-slate-500">
-                          {keyword.region} · {keyword.language} · {keyword.normalizedText}
-                        </div>
+            {manualPrimaryKeywords.length > 0 ? (
+              manualPrimaryKeywords.map((keyword) => (
+                <article
+                  key={keyword.id}
+                  className="rounded-2xl border border-black/8 bg-stone-50/80 px-4 py-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-base font-semibold text-slate-950">{keyword.text}</div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {keyword.region} · {keyword.language} · pinned {keyword.pinned ? "yes" : "no"}
                       </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <form action={updateKeywordPinnedAction}>
+                        <input type="hidden" name="keywordId" value={String(keyword.id)} />
+                        <input type="hidden" name="pinned" value={keyword.pinned ? "0" : "1"} />
+                        <button
+                          type="submit"
+                          className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 transition-colors hover:bg-stone-100"
+                        >
+                          {keyword.pinned ? "Unpin" : "Pin"}
+                        </button>
+                      </form>
                       <form action={deleteManualPrimaryKeywordAction}>
                         <input type="hidden" name="keywordId" value={String(keyword.id)} />
                         <button
-                          className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 transition-colors hover:bg-stone-100"
                           type="submit"
+                          className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 transition-colors hover:bg-stone-100"
                         >
                           Delete
                         </button>
                       </form>
                     </div>
-                  </article>
-                ))
+                  </div>
+                </article>
+              ))
             ) : (
               <div className="rounded-2xl border border-dashed border-black/10 bg-stone-50/70 px-4 py-6 text-sm text-slate-500">
-                No manual primary keywords yet.
+                등록된 manual primary가 없습니다.
               </div>
             )}
           </div>
         </section>
 
-        {pinnedKeywords.length > 0 ? (
-          <section className="rounded-[28px] border border-black/10 bg-[#152218] p-6 text-white shadow-[0_16px_60px_rgba(24,32,22,0.22)]">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="text-xl font-semibold tracking-tight">Pinned Primary Keywords</h2>
-                <p className="mt-1 text-sm text-emerald-100/80">
-                  Hand-picked keywords surfaced directly from the primary keyword inventory.
-                </p>
-              </div>
-              <Link href="/keywords?pinned=1&sort=pinned" className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/15">Manage Pins</Link>
-            </div>
-            <div className="mt-5 grid gap-3 lg:grid-cols-2">
-              {pinnedKeywords.map((keyword) => {
-                const metric = keyword.metrics[0];
-                const keywordSourceIds = parseKeywordSourceIds(keyword.sourceIdsRaw);
+        <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
+          <div>
+            <h2 className="text-xl font-semibold tracking-tight">Secondary Keywords</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Trends 확장 외에도 줄바꿈 기준 벌크 입력으로 secondary를 직접 추가할 수 있습니다.
+            </p>
+          </div>
 
-                return (
-                  <article
-                    key={keyword.id}
-                    className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-base font-semibold">{keyword.text}</div>
-                        <div className="mt-1 text-xs text-slate-300">
-                          {keyword.region} · {keyword.language} · {keyword.normalizedText}
-                        </div>
-                      </div>
-                      <form action={updateKeywordPinnedAction}>
-                        <input type="hidden" name="keywordId" value={String(keyword.id)} />
-                        <input type="hidden" name="pinned" value="0" />
-                        <button
-                          className="rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-white/15"
-                          type="submit"
-                        >
-                          Unpin
-                        </button>
-                      </form>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {keywordSourceIds.map((sourceId) => (
-                        <span
-                          key={sourceId}
-                          className="rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-[11px] text-emerald-100"
-                        >
-                          {sourceId}
-                        </span>
-                      ))}
-                    </div>
-                    <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                      <DashboardMetric
-                        label="Opportunity"
-                        value={metric ? metric.opportunityScore.toFixed(2) : "0.00"}
-                      />
-                      <DashboardMetric
-                        label="Frequency"
-                        value={metric ? String(metric.frequencyScore) : "0"}
-                      />
-                      <DashboardMetric
-                        label="Sources"
-                        value={metric ? String(metric.sourceCount) : "0"}
-                      />
-                    </div>
-                  </article>
-                );
-              })}
+          <form action={bulkImportManualSecondaryKeywordsAction} className="mt-5 rounded-[24px] border border-black/10 bg-stone-50/70 p-4">
+            <div className="grid gap-3 md:grid-cols-[120px_120px_minmax(0,1fr)]">
+              <select
+                name="region"
+                defaultValue="KR"
+                className="rounded-full border border-black/10 bg-white px-4 py-2.5 text-sm text-slate-900"
+              >
+                <option value="KR">KR</option>
+                <option value="JP">JP</option>
+              </select>
+              <input type="hidden" name="language" value="ko" />
+              <select
+                name="parentKeywordId"
+                defaultValue=""
+                className="rounded-full border border-black/10 bg-white px-4 py-2.5 text-sm text-slate-900"
+              >
+                <option value="">No Parent</option>
+                {manualPrimaryKeywords.map((keyword) => (
+                  <option key={keyword.id} value={String(keyword.id)}>
+                    {keyword.text}
+                  </option>
+                ))}
+              </select>
             </div>
-          </section>
-        ) : null}
+            <textarea
+              name="bulkText"
+              rows={8}
+              placeholder={"타이 마사지 후기\n스웨디시 추천\n팬트리 디시 링크"}
+              className="mt-3 w-full rounded-[20px] border border-black/10 bg-white px-4 py-3 text-sm text-slate-900"
+            />
+            <div className="mt-3 flex justify-end">
+              <button
+                type="submit"
+                className="rounded-full bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
+              >
+                Import Secondary Block
+              </button>
+            </div>
+          </form>
+
+          <div className="mt-5 grid gap-3 lg:grid-cols-2">
+            {recentSecondaryKeywords.map((keyword) => (
+              <article
+                key={keyword.id}
+                className="rounded-2xl border border-black/8 bg-stone-50/80 px-4 py-4"
+              >
+                <div className="text-base font-semibold text-slate-950">{keyword.text}</div>
+                <div className="mt-1 text-xs text-slate-500">
+                  parent {keyword.parentKeyword?.text ?? "-"} · {keyword.sourceLabel ?? "-"} · score{" "}
+                  {keyword.metrics[0]?.opportunityScore.toFixed(2) ?? "0.00"}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight">Namu Wiki Initial Pages</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                `AV 배우 정보` 문서에서 여배우 초성 묶음을 가져와 초성별 공개 페이지를 만듭니다.
+              </p>
+            </div>
+            <Link
+              href="/admin/keywords?view=generated"
+              className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-medium text-slate-800 transition-colors hover:bg-stone-50"
+            >
+              Generated Pages
+            </Link>
+          </div>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            {(["ㄱ", "ㄴ", "ㄷ", "ㄹ", "ㅁ"] as const).map((initial) => (
+              <form
+                key={initial}
+                action={syncNamuInitialPageAction}
+                className="rounded-2xl border border-black/8 bg-stone-50/80 p-4"
+              >
+                <input type="hidden" name="initial" value={initial} />
+                <div className="text-lg font-semibold text-slate-950">{initial}</div>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  클릭 시 해당 초성 구간을 다시 읽고 공개 페이지를 갱신합니다.
+                </p>
+                <button
+                  type="submit"
+                  className="mt-4 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
+                >
+                  Sync {initial}
+                </button>
+              </form>
+            ))}
+          </div>
+
+          <div className="mt-5 grid gap-3 lg:grid-cols-2">
+            {namuPages.length > 0 ? (
+              namuPages.map((page) => (
+                <Link
+                  key={page.id}
+                  href={page.canonicalPath}
+                  className="rounded-2xl border border-black/8 bg-stone-50/80 px-4 py-4 transition-colors hover:bg-white"
+                >
+                  <div className="text-base font-semibold text-slate-950">{page.title}</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {page.canonicalPath} · {page.status}
+                  </div>
+                  <p className="mt-3 text-sm leading-6 text-slate-700">{page.description}</p>
+                </Link>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed border-black/10 bg-stone-50/70 px-4 py-6 text-sm text-slate-500">
+                아직 생성된 나무위키 초성 페이지가 없습니다.
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="grid gap-6 xl:grid-cols-2">
+          <div className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-xl font-semibold tracking-tight">Latest Secondary Preview</h2>
+              <Link
+                href="/admin/keywords?view=secondary"
+                className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-medium text-slate-800 transition-colors hover:bg-stone-50"
+              >
+                View All
+              </Link>
+            </div>
+            <div className="mt-5 grid gap-3">
+              {recentSecondaryKeywords.slice(0, 10).map((keyword) => (
+                <div
+                  key={keyword.id}
+                  className="rounded-2xl border border-black/8 bg-stone-50/80 px-4 py-3"
+                >
+                  <div className="text-sm font-semibold text-slate-900">{keyword.text}</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {keyword.parentKeyword?.text ?? "-"} · {keyword.sourceLabel ?? "-"}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-xl font-semibold tracking-tight">Latest Page Preview</h2>
+              <Link
+                href="/admin/keywords?view=generated"
+                className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-medium text-slate-800 transition-colors hover:bg-stone-50"
+              >
+                View All
+              </Link>
+            </div>
+            <div className="mt-5 grid gap-3">
+              {generatedPages.slice(0, 10).map((page) => (
+                <Link
+                  key={page.id}
+                  href={page.canonicalPath}
+                  className="rounded-2xl border border-black/8 bg-stone-50/80 px-4 py-3 transition-colors hover:bg-white"
+                >
+                  <div className="text-sm font-semibold text-slate-900">{page.title}</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {page.status} · {page.keyword.text}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </section>
 
         <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
           <div className="flex items-center justify-between gap-4">
             <div>
               <h2 className="text-xl font-semibold tracking-tight">Ad Slots</h2>
               <p className="mt-1 text-sm text-slate-600">
-                Public homepage and detail page placements. Toggle each slot without code edits.
+                공개 페이지 광고 슬롯 on/off 토글입니다.
               </p>
             </div>
           </div>
@@ -271,9 +458,7 @@ export default async function AdminPage() {
                     </div>
                     <span
                       className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${
-                        enabled
-                          ? "bg-emerald-100 text-emerald-900"
-                          : "bg-slate-200 text-slate-700"
+                        enabled ? "bg-emerald-100 text-emerald-900" : "bg-slate-200 text-slate-700"
                       }`}
                     >
                       {enabled ? "enabled" : "disabled"}
@@ -299,67 +484,7 @@ export default async function AdminPage() {
             })}
           </div>
         </section>
-        <section className="rounded-[28px] border border-black/10 bg-white/80 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-semibold tracking-tight">Primary Keywords</h2>
-                <div className="flex items-center gap-2">
-                  <code className="rounded-lg bg-slate-100 px-2 py-1 text-[11px] text-slate-700">
-                    POST /api/extract/secondary
-                  </code>
-                  <Link
-                    href="/keywords"
-                    className="rounded-full border border-black/10 bg-slate-950 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-slate-800"
-                  >
-                    View All
-                  </Link>
-                </div>
-              </div>
-              <div className="mt-5 grid gap-3">
-                {keywords.length > 0 ? (
-                  keywords.map((keyword) => {
-                    const metric = keyword.metrics[0];
-
-                    return (
-                      <div
-                        key={keyword.id}
-                        className="flex items-center justify-between rounded-2xl border border-black/8 bg-stone-50/80 px-4 py-3"
-                      >
-                        <div>
-                          <div className="text-sm font-semibold text-slate-900">{keyword.text}</div>
-                          <div className="mt-1 text-xs text-slate-500">
-                            {keyword.region} · {keyword.language} · {keyword.normalizedText}
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-sm font-semibold text-slate-900">
-                            {metric ? metric.opportunityScore.toFixed(2) : "0.00"}
-                          </div>
-                          <div className="mt-1 text-xs text-slate-500">
-                            {metric
-                              ? `${metric.sourceCount} src / ${metric.frequencyScore} freq`
-                              : "no metric"}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="rounded-2xl border border-dashed border-black/10 bg-stone-50/70 px-4 py-6 text-sm text-slate-500">
-                    Add manual primary keywords above, then run `Run Manual Expansion`.
-                  </div>
-                )}
-              </div>
-        </section>
       </div>
     </main>
-  );
-}
-
-function DashboardMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-white/10 px-3 py-2">
-      <div className="text-[11px] uppercase tracking-[0.12em] text-emerald-100/70">{label}</div>
-      <div className="mt-1 text-sm font-semibold text-white">{value}</div>
-    </div>
   );
 }

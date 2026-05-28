@@ -1,8 +1,13 @@
 import { after, NextResponse } from "next/server";
 
+import { isAdminRequestAuthenticated } from "@/lib/admin-auth";
 import { runTrackedFullPipeline } from "@/lib/full-pipeline-service";
 
 export async function POST(request: Request) {
+  if (!isAdminRequestAuthenticated(request)) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const body = (await request.json().catch(() => null)) as
         | {
@@ -22,6 +27,8 @@ export async function POST(request: Request) {
           skipIngest?: boolean;
           primarySelection?: "auto" | "manual";
           secondaryForceRefresh?: boolean;
+          skipAnalysis?: boolean;
+          skipHubs?: boolean;
           startFrom?:
             | "ingest"
             | "primary"
@@ -43,6 +50,8 @@ export async function POST(request: Request) {
       skipIngest: body?.skipIngest,
       primarySelection: body?.primarySelection,
       secondaryForceRefresh: body?.secondaryForceRefresh,
+      skipAnalysis: body?.skipAnalysis,
+      skipHubs: body?.skipHubs,
       startFrom: body?.startFrom,
     };
 

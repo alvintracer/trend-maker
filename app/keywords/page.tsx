@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
 import {
   createManualPrimaryKeywordAction,
@@ -93,7 +94,7 @@ const MANUAL_SOURCE_OPTION = {
   name: "Manual",
 };
 
-export default async function KeywordsPage({ searchParams }: KeywordsPageProps) {
+export async function KeywordsInventoryPage({ searchParams }: KeywordsPageProps) {
   const params = await searchParams;
   const selectedSort = normalizeSort(params.sort);
   const selectedView = normalizeView(params.view);
@@ -159,21 +160,21 @@ export default async function KeywordsPage({ searchParams }: KeywordsPageProps) 
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-900">
-                Keyword Inventory
+                Admin Keyword Inventory
               </div>
               <h1 className="mt-3 text-4xl font-semibold tracking-tight sm:text-5xl">
-                Primary and secondary keyword sets from active sources.
+                Primary, secondary, hub, and page inventory.
               </h1>
               <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600">
-                Filter by source, pin primary keywords into the dashboard, and expand visible
-                primary candidates into Google Suggest-based secondary keywords.
+                수동 primary/secondary, Trends 확장 결과, 허브 클러스터, 생성 페이지를 한 곳에서
+                확인하고 배치 액션을 실행합니다.
               </p>
             </div>
             <Link
-              href="/"
+              href="/admin"
               className="rounded-full border border-black/10 bg-slate-950 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800"
             >
-              Back to Home
+              Back to Admin
             </Link>
           </div>
         </section>
@@ -999,6 +1000,28 @@ export default async function KeywordsPage({ searchParams }: KeywordsPageProps) 
   );
 }
 
+export default async function KeywordsPage({ searchParams }: KeywordsPageProps) {
+  const params = await searchParams;
+  const search = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined) {
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        search.append(key, item);
+      }
+    } else {
+      search.set(key, value);
+    }
+  }
+
+  const query = search.toString();
+  redirect(query ? `/admin/keywords?${query}` : "/admin/keywords");
+}
+
 function normalizeSort(value?: string) {
   const supportedValues = SORT_OPTIONS.map((option) => option.value) as readonly string[];
   return supportedValues.includes(value ?? "") ? (value as SortOptionValue) : "opportunity";
@@ -1053,7 +1076,7 @@ function buildKeywordsHref({
   }
 
   const query = searchParams.toString();
-  return query ? `/keywords?${query}` : "/keywords";
+  return query ? `/admin/keywords?${query}` : "/admin/keywords";
 }
 
 function normalizeSecondaryStatus(value?: string) {

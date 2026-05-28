@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { isAdminRequestAuthenticated } from "@/lib/admin-auth";
 import { ingestSource } from "@/lib/ingestion-service";
 
 type RouteContext = {
@@ -9,6 +10,10 @@ type RouteContext = {
 };
 
 export async function POST(_request: Request, context: RouteContext) {
+  if (!isAdminRequestAuthenticated(_request)) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
+
   const { sourceId } = await context.params;
 
   try {

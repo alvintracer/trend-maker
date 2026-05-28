@@ -81,6 +81,21 @@ export async function upsertPrimaryKeywords(candidates: PrimaryKeywordCandidate[
 }
 
 export async function setKeywordPinned(keywordId: number, pinned: boolean) {
+  if (pinned) {
+    const existing = await prisma.keyword.findUnique({
+      where: { id: keywordId },
+      select: { pinned: true, level: true },
+    });
+
+    if (!existing || existing.level !== KeywordLevel.primary) {
+      throw new Error("Primary keyword not found");
+    }
+
+    if (!existing.pinned) {
+      await assertPinnedPrimaryCapacity();
+    }
+  }
+
   await prisma.keyword.update({
     where: { id: keywordId },
     data: {
@@ -96,6 +111,29 @@ type CreateManualPrimaryKeywordInput = {
   language?: string;
 };
 
+type CreateManualSecondaryKeywordInput = {
+  text: string;
+  region?: string;
+  language?: string;
+  parentKeywordId?: number | null;
+};
+
+async function assertPinnedPrimaryCapacity() {
+  const pinnedCount = await prisma.keyword.count({
+    where: {
+      level: KeywordLevel.primary,
+      pinned: true,
+      status: {
+        in: [KeywordStatus.tracking, KeywordStatus.analyzed],
+      },
+    },
+  });
+
+  if (pinnedCount >= 30) {
+    throw new Error("Pinned primary keyword limit reached (30)");
+  }
+}
+
 export async function createManualPrimaryKeyword(input: string | CreateManualPrimaryKeywordInput) {
   const text = typeof input === "string" ? input : input.text;
   const region = typeof input === "string" ? "KR" : input.region ?? "KR";
@@ -104,6 +142,19 @@ export async function createManualPrimaryKeyword(input: string | CreateManualPri
 
   if (!normalizedText || normalizedText.length < 2) {
     throw new Error("Manual keyword must be at least 2 characters");
+  }
+
+  const existing = await prisma.keyword.findUnique({
+    where: {
+      normalizedText,
+    },
+    select: {
+      pinned: true,
+    },
+  });
+
+  if (!existing?.pinned) {
+    await assertPinnedPrimaryCapacity();
   }
 
   const metricDate = startOfToday();
@@ -172,6 +223,88 @@ export async function createManualPrimaryKeywords(
 
   for (const entry of entries) {
     created.push(await createManualPrimaryKeyword(entry));
+  }
+
+  return created;
+}
+
+export async function createManualSecondaryKeyword(
+  input: string | CreateManualSecondaryKeywordInput,
+) {
+  const text = typeof input === "string" ? input : input.text;
+  const region = typeof input === "string" ? "KR" : input.region ?? "KR";
+  const language = typeof input === "string" ? "ko" : input.language ?? "ko";
+  const parentKeywordId = typeof input === "string" ? null : input.parentKeywordId ?? null;
+  const normalizedText = normalizeKeyword(text);
+
+  if (!normalizedText || normalizedText.length < 2) {
+    throw new Error("Manual secondary keyword must be at least 2 characters");
+  }
+
+  const metricDate = startOfToday();
+  const keyword = await prisma.keyword.upsert({
+    where: {
+      normalizedText,
+    },
+    update: {
+      text,
+      level: KeywordLevel.secondary,
+      parentKeywordId,
+      region,
+      language,
+      sourceLabel: "manual_secondary",
+      sourceIdsRaw: `manual:${region.toLowerCase()}`,
+      isManual: true,
+      lastSeenAt: new Date(),
+      status: KeywordStatus.tracking,
+    },
+    create: {
+      text,
+      normalizedText,
+      level: KeywordLevel.secondary,
+      parentKeywordId,
+      region,
+      language,
+      sourceLabel: "manual_secondary",
+      sourceIdsRaw: `manual:${region.toLowerCase()}`,
+      isManual: true,
+      status: KeywordStatus.tracking,
+    },
+  });
+
+  await prisma.keywordMetric.upsert({
+    where: {
+      keywordId_metricDate: {
+        keywordId: keyword.id,
+        metricDate,
+      },
+    },
+    update: {
+      frequencyScore: 1,
+      sourceCount: 1,
+      trendScore: 1,
+      opportunityScore: 6,
+    },
+    create: {
+      keywordId: keyword.id,
+      metricDate,
+      frequencyScore: 1,
+      sourceCount: 1,
+      trendScore: 1,
+      opportunityScore: 6,
+    },
+  });
+
+  return keyword;
+}
+
+export async function createManualSecondaryKeywords(
+  entries: Array<CreateManualSecondaryKeywordInput>,
+) {
+  const created = [];
+
+  for (const entry of entries) {
+    created.push(await createManualSecondaryKeyword(entry));
   }
 
   return created;
@@ -294,6 +427,30 @@ export async function getManualPrimaryKeywords(limit = 50) {
   });
 
   return keywords.sort((left, right) => compareKeywords(left, right, "pinned")).slice(0, limit);
+}
+
+export async function getRecentSecondaryKeywords(limit = 40) {
+  return prisma.keyword.findMany({
+    where: {
+      level: KeywordLevel.secondary,
+      status: {
+        in: [KeywordStatus.tracking, KeywordStatus.analyzed],
+      },
+    },
+    include: {
+      parentKeyword: true,
+      metrics: {
+        orderBy: {
+          metricDate: "desc",
+        },
+        take: 1,
+      },
+    },
+    orderBy: {
+      updatedAt: "desc",
+    },
+    take: limit,
+  });
 }
 
 export type TertiaryKeywordQuery = {
