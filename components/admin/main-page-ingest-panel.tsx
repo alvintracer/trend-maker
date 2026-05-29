@@ -160,6 +160,10 @@ export function MainPageIngestPanel({ initialSources }: MainPageIngestPanelProps
             메인페이지에 노출할 커뮤니티 인기 게시글 재료만 별도로 수집합니다. 키워드 생성
             파이프라인과는 분리된 흐름입니다.
           </p>
+          <p className="mt-2 text-sm text-amber-700">
+            현재 Vercel Hobby 플랜 기준으로 자동 갱신은 하루 1회만 지원합니다. 더 자주 갱신하려면
+            아래 `Fetch` 버튼으로 수동 실행해야 합니다.
+          </p>
         </div>
         <button
           type="button"
@@ -217,22 +221,22 @@ export function MainPageIngestPanel({ initialSources }: MainPageIngestPanelProps
                 <span>Every</span>
                 <input
                   type="number"
-                  min={1}
-                  max={168}
+                  min={24}
+                  max={24}
                   value={source.intervalHours}
-                  onChange={(event) => {
-                    const value = Number(event.target.value);
+                  onChange={() => {
                     setSources((current) =>
                       current.map((item) =>
                         item.externalId === source.externalId
                           ? {
                               ...item,
-                              intervalHours: value,
+                              intervalHours: 24,
                             }
                           : item,
                       ),
                     );
                   }}
+                  disabled
                   className="w-20 rounded-full border border-black/10 bg-white px-3 py-2 text-sm text-slate-900"
                 />
                 <span>hours</span>

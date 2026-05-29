@@ -17,10 +17,10 @@ export type MainPageSourceSetting = {
   intervalHours: number;
 };
 
-const DEFAULT_INTERVAL_HOURS = 6;
+const DEFAULT_INTERVAL_HOURS = 24;
 
 function isValidIntervalHours(value: number) {
-  return Number.isFinite(value) && value >= 1 && value <= 168;
+  return Number.isFinite(value) && value === DEFAULT_INTERVAL_HOURS;
 }
 
 function getMainPageSourceSettingDelegate() {
@@ -105,7 +105,7 @@ export async function updateMainPageSourceSetting(input: MainPageSourceSetting) 
   }
 
   if (!isValidIntervalHours(input.intervalHours)) {
-    throw new Error("Interval hours must be between 1 and 168");
+    throw new Error("Hobby cron is limited to once per day, so intervalHours must be 24");
   }
 
   const delegate = getMainPageSourceSettingDelegate();
