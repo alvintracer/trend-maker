@@ -229,16 +229,17 @@ function buildPageCopy(input: {
     const visibleNames = input.secondaryKeywords.slice(0, 48);
     const leadingNames = visibleNames.slice(0, 16);
     const trailingNames = visibleNames.slice(16, 32);
+    const emphasizedNames = visibleNames.slice(0, 6);
 
     return {
       sampledDocs: [],
       title: truncate(`${input.keywordText}`, 60),
       description: truncate(
-        `${input.keywordText} 안에 포함된 실제 AV 배우 이름을 모아 정리한 초성 목록 페이지입니다.`,
+        `${input.keywordText} 페이지에서 ${emphasizedNames.join(", ") || "실제 배우 이름"}처럼 함께 묶이는 실제 AV 배우 이름을 초성별로 정리합니다.`,
         110,
       ),
       summary: truncate(
-        `${input.keywordText}에 포함된 실제 배우 이름과 초성별 대표 항목 흐름을 한 페이지에서 빠르게 훑어볼 수 있도록 정리했습니다.`,
+        `${input.keywordText}에 포함된 실제 배우 이름과 초성별 대표 항목 흐름을 한 페이지에서 빠르게 훑어볼 수 있도록 정리했습니다. ${emphasizedNames.join(", ") || "실제 배우 이름"} 같은 세부 이름도 본문과 메타 설명에 함께 반영합니다.`,
         220,
       ),
       bodyParagraphs: [
@@ -271,6 +272,7 @@ function buildPageCopy(input: {
   const parsedDocs = sampledDocs.map((document) => parseDcBestContentBlock(document.content));
   const fallbackRows = parsedDocs.map((item) => item.row).filter(Boolean);
   const emphasizedSecondaries = input.secondaryKeywords.slice(0, 8);
+  const descriptionKeywords = emphasizedSecondaries.slice(0, 4);
 
   const summary = truncate(
     `${input.keywordText} 관련 흐름을 디시 실시간베스트 최근 5페이지 기준으로 정리했습니다. ${emphasizedSecondaries.join(", ") || input.keywordText} 같은 세부 키워드와 함께 어떤 맥락에서 묶이는지 빠르게 읽을 수 있게 구성했습니다.`,
@@ -278,7 +280,7 @@ function buildPageCopy(input: {
   );
   const title = truncate(`${input.keywordText}`, 60);
   const description = truncate(
-    `${input.keywordText} 중심으로 ${emphasizedSecondaries.join(", ") || "연관 검색어"} 등 세컨더리 키워드와 최근 디시 반응을 함께 정리한 페이지입니다.`,
+    `${input.keywordText} 중심으로 ${descriptionKeywords.join(", ") || "연관 검색어"} 같은 세컨더리 키워드와 최근 디시 반응을 함께 정리한 페이지입니다.`,
     110,
   );
   const bodyParagraphs = [
@@ -502,6 +504,15 @@ export async function getGeneratedPageBySlug(slug: string) {
           },
           childKeywords: {
             include: {
+              generatedPages: {
+                where: {
+                  status: GeneratedPageStatus.published,
+                },
+                orderBy: {
+                  updatedAt: "desc",
+                },
+                take: 1,
+              },
               metrics: {
                 orderBy: {
                   metricDate: "desc",

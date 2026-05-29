@@ -12,6 +12,9 @@ export type AdSlotKey =
   | "detail_inline_native"
   | "detail_bottom_banner";
 
+export const ADSTERRA_SMARTLINK_URL =
+  "https://www.effectivecpmnetwork.com/te3p3jbu?key=f3c70e4336ab87dbceedb82a90b510e0";
+
 type BannerUnit = {
   kind: "banner";
   width: number;

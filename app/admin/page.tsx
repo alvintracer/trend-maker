@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { updateAdSlotEnabledAction } from "@/app/admin/ad-actions";
+import {
+  updateAdSlotEnabledAction,
+  updateTrafficRedirectSettingsAction,
+} from "@/app/admin/ad-actions";
 import { logoutAdminAction } from "@/app/admin/auth-actions";
 import { updatePublishThresholdAction } from "@/app/admin/publish-actions";
 import {
@@ -27,6 +30,7 @@ import { NAMU_AV_ACTIVE_INITIALS } from "@/lib/namu-av-actors";
 import { getLatestPipelineRun } from "@/lib/pipeline-run";
 import { getPublishRulesForDisplay } from "@/lib/publish-service";
 import { prisma } from "@/lib/prisma";
+import { getTrafficRedirectSettings } from "@/lib/traffic-redirect-settings";
 
 export const metadata: Metadata = {
   title: "Admin",
@@ -46,6 +50,7 @@ export default async function AdminPage() {
     adSettings,
     latestPipelineRun,
     publishRules,
+    trafficRedirectSettings,
     dcbestSource,
     dcbestDocumentCount,
     generatedPages,
@@ -56,6 +61,7 @@ export default async function AdminPage() {
     getAdSlotSettingsMap(),
     getLatestPipelineRun(),
     getPublishRulesForDisplay(),
+    getTrafficRedirectSettings(),
     prisma.source.findUnique({
       where: {
         externalId: "dcinside-dcbest",
@@ -463,6 +469,37 @@ export default async function AdminPage() {
               </form>
             </div>
           </div>
+        </section>
+
+        <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight">Traffic Redirect</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                generated page 진입 시 외부 smartlink로 바로 넘길지 설정합니다.
+              </p>
+            </div>
+          </div>
+          <form action={updateTrafficRedirectSettingsAction} className="mt-5 grid gap-4 lg:grid-cols-[160px_minmax(0,1fr)_160px]">
+            <label className="flex items-center gap-3 rounded-2xl border border-black/10 bg-stone-50 px-4 py-3">
+              <input
+                type="checkbox"
+                name="enabled"
+                value="1"
+                defaultChecked={trafficRedirectSettings.enabled}
+              />
+              <span className="text-sm font-medium text-slate-900">Enable Redirect</span>
+            </label>
+            <div className="flex items-center rounded-2xl border border-black/10 bg-stone-50 px-4 py-3 text-sm text-slate-700">
+              {trafficRedirectSettings.smartlinkUrl}
+            </div>
+            <button
+              className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800"
+              type="submit"
+            >
+              Save Redirect
+            </button>
+          </form>
         </section>
 
         <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">

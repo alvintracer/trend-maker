@@ -9,17 +9,38 @@ import {
   getPinnedPrimaryKeywords,
   getTopPrimaryKeywords,
 } from "@/lib/keyword-repository";
+import { toAbsoluteUrl } from "@/lib/seo";
+import { getSecondaryKeywordInventory } from "@/lib/secondary-keyword-service";
+import { getSiteUrl } from "@/lib/site-url";
 
 export const metadata: Metadata = {
   title: "CommunityWikiKorea",
   description: "한국 커뮤니티에서 지금 뜨는 실시간 트렌드 키워드와 허브 페이지를 모아보는 위키.",
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    type: "website",
+    title: "CommunityWikiKorea",
+    description: "한국 커뮤니티에서 지금 뜨는 실시간 트렌드 키워드와 허브 페이지를 모아보는 위키.",
+    url: "/",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "CommunityWikiKorea",
+    description: "한국 커뮤니티에서 지금 뜨는 실시간 트렌드 키워드와 허브 페이지를 모아보는 위키.",
+  },
 };
 
 export default async function Home() {
-  const [topKeywords, pinnedKeywords, publishedPages, adSettings] = await Promise.all([
+  const [topKeywords, pinnedKeywords, publishedPages, featuredSecondaryKeywords, adSettings] = await Promise.all([
     getTopPrimaryKeywords(12),
     getPinnedPrimaryKeywords(6),
     getPublishedGeneratedPages(12),
+    getSecondaryKeywordInventory({
+      limit: 18,
+      sort: "opportunity",
+    }),
     getAdSlotSettingsMap(),
   ]);
 
@@ -28,9 +49,47 @@ export default async function Home() {
   const publishedPageByKeywordId = new Map(
     publishedPages.map((page) => [page.keywordId, page]),
   );
+  const heroSecondaryKeywords = featuredSecondaryKeywords.slice(0, 12);
+  const siteUrl = getSiteUrl();
+  const homeJsonLd = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        name: "CommunityWikiKorea",
+        url: siteUrl,
+        inLanguage: "ko-KR",
+        description: "한국 커뮤니티에서 지금 뜨는 실시간 트렌드 키워드와 허브 페이지를 모아보는 위키.",
+      },
+      {
+        "@type": "CollectionPage",
+        name: "한국 커뮤니티 실시간 트렌드 키워드",
+        url: siteUrl,
+        inLanguage: "ko-KR",
+        description: "한국 커뮤니티에서 지금 뜨는 실시간 트렌드 키워드와 허브 페이지를 모아보는 위키.",
+        mainEntity: {
+          "@type": "ItemList",
+          itemListElement: liveKeywords.map((keyword, index) => ({
+            "@type": "ListItem",
+            position: index + 1,
+            name: keyword.text,
+            url: toAbsoluteUrl(
+              publishedPageByKeywordId.get(keyword.id)?.canonicalPath ?? "/",
+              siteUrl,
+            ),
+          })),
+        },
+      },
+    ],
+  };
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,#f0f7e8_0%,#f5f1e8_42%,#f7f6f2_100%)] text-slate-950">
+      <script
+        type="application/ld+json"
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(homeJsonLd) }}
+      />
       <GlobalAdScripts
         enabledKeys={[
           ...(adSettings.global_social_bar ? (["global_social_bar"] as const) : []),
@@ -59,6 +118,16 @@ export default async function Home() {
                 설명보다 흐름을 먼저 보여줍니다. 아래 보드에서 지금 뜨는 키워드를 보고,
                 연결된 허브가 있으면 바로 이동할 수 있습니다.
               </p>
+              <div className="mt-6 flex flex-wrap justify-center gap-2">
+                {heroSecondaryKeywords.slice(0, 8).map((keyword) => (
+                  <span
+                    key={keyword.id}
+                    className="rounded-full border border-white/12 bg-white/10 px-3 py-1.5 text-xs font-medium text-emerald-50"
+                  >
+                    {keyword.text}
+                  </span>
+                ))}
+              </div>
             </div>
           </section>
 
@@ -80,12 +149,9 @@ export default async function Home() {
                   키워드 클러스터 맵
                 </h2>
               </div>
-              <Link
-                href="/admin/keywords"
-                className="rounded-full border border-black/10 bg-stone-50 px-4 py-2 text-sm font-medium text-slate-800 transition-colors hover:bg-white"
-              >
-                Admin Keywords
-              </Link>
+              <div className="rounded-full border border-black/10 bg-stone-50 px-4 py-2 text-sm font-medium text-slate-700">
+                공개 허브 {publishedPages.length}개
+              </div>
             </div>
 
             <div className="mt-6 rounded-[28px] border border-[#d8d4c7] bg-[linear-gradient(180deg,#fbfaf6_0%,#f4f0e5_100%)] p-4 sm:p-5">
@@ -103,24 +169,39 @@ export default async function Home() {
                               ? "text-xl sm:text-2xl"
                               : "text-lg sm:text-xl";
 
+                      const publishedPage = publishedPageByKeywordId.get(keyword.id) ?? null;
+                      const chipClassName = `rounded-full border border-emerald-950/10 px-4 py-2 font-semibold tracking-tight text-slate-950 shadow-[0_10px_30px_rgba(40,52,32,0.08)] ${sizeClass} ${
+                        index % 4 === 0
+                          ? "bg-[#dfeccc]"
+                          : index % 4 === 1
+                            ? "bg-[#f2e7c8]"
+                            : index % 4 === 2
+                              ? "bg-[#e7efe8]"
+                              : "bg-[#f4efe3]"
+                      }`;
+
+                      if (!publishedPage) {
+                        return (
+                          <span key={keyword.id} className={chipClassName}>
+                            {keyword.text}
+                            <span className="ml-2 text-xs font-medium text-slate-500">
+                              {metric ? metric.frequencyScore : 0}
+                            </span>
+                          </span>
+                        );
+                      }
+
                       return (
-                        <div
+                        <Link
                           key={keyword.id}
-                          className={`rounded-full border border-emerald-950/10 px-4 py-2 font-semibold tracking-tight text-slate-950 shadow-[0_10px_30px_rgba(40,52,32,0.08)] ${sizeClass} ${
-                            index % 4 === 0
-                              ? "bg-[#dfeccc]"
-                              : index % 4 === 1
-                                ? "bg-[#f2e7c8]"
-                                : index % 4 === 2
-                                  ? "bg-[#e7efe8]"
-                                  : "bg-[#f4efe3]"
-                          }`}
+                          href={publishedPage.canonicalPath}
+                          className={`${chipClassName} transition-transform hover:-translate-y-0.5`}
                         >
                           {keyword.text}
                           <span className="ml-2 text-xs font-medium text-slate-500">
                             {metric ? metric.frequencyScore : 0}
                           </span>
-                        </div>
+                        </Link>
                       );
                     })}
                   </div>
@@ -228,6 +309,71 @@ export default async function Home() {
                   공개 허브가 아직 없으면 메인에서는 키워드 흐름만 먼저 보여줍니다.
                 </div>
               )}
+            </div>
+          </section>
+
+          <section className="rounded-[30px] border border-black/10 bg-white/92 p-5 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-900">
+                  Secondary Watchlist
+                </div>
+                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                  지금 같이 묶여서 뜨는 세부 키워드
+                </h2>
+              </div>
+              <div className="rounded-full border border-black/10 bg-stone-50 px-4 py-2 text-sm font-medium text-slate-700">
+                세컨더리 {featuredSecondaryKeywords.length}개 노출 중
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {featuredSecondaryKeywords.map((keyword) => {
+                const metric = keyword.metrics[0];
+                const latestPage = keyword.generatedPages[0] ?? null;
+
+                return (
+                  <article
+                    key={keyword.id}
+                    className="rounded-[24px] border border-[#ded8cb] bg-[#fcfbf7] px-4 py-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-lg font-semibold text-slate-950">{keyword.text}</div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          opp {metric ? metric.opportunityScore.toFixed(2) : "0.00"} · parents {keyword.suggestedBy.length}
+                        </div>
+                      </div>
+                      <span className="rounded-full bg-[#e8f0df] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-900">
+                        secondary
+                      </span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {keyword.suggestedBy.slice(0, 3).map((relation) => (
+                        <span
+                          key={`${keyword.id}-${relation.parentKeywordId}`}
+                          className="rounded-full border border-black/10 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700"
+                        >
+                          {relation.parentKeyword.text}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="mt-4 flex items-center justify-between gap-3">
+                      <div className="text-sm text-slate-600">
+                        {latestPage ? latestPage.title : "페이지 준비중"}
+                      </div>
+                      {latestPage ? (
+                        <Link
+                          href={latestPage.canonicalPath}
+                          className="rounded-full border border-black/10 bg-white px-3 py-2 text-xs font-semibold text-slate-800 transition-colors hover:bg-stone-100"
+                        >
+                          이동
+                        </Link>
+                      ) : null}
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           </section>
 

@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { headers } from "next/headers";
+import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
 
 import { GlobalAdScripts } from "@/components/ads/global-ad-scripts";
@@ -9,7 +11,9 @@ import {
   getGeneratedPageByRouteSlug,
   parseGeneratedPageArray,
 } from "@/lib/generated-page-service";
+import { isSearchCrawlerUserAgent, toAbsoluteUrl } from "@/lib/seo";
 import { getSiteUrl } from "@/lib/site-url";
+import { getTrafficRedirectSettings } from "@/lib/traffic-redirect-settings";
 
 const getCachedGeneratedPageBySlug = cache(async (slug: string) => getGeneratedPageByRouteSlug(slug));
 
@@ -31,6 +35,10 @@ export async function generateMetadata({
 
   const published = page.status === "published";
   const absoluteUrl = new URL(page.canonicalPath, getSiteUrl()).toString();
+  const relatedKeywords = parseGeneratedPageArray(page.relatedKeywordsRaw).slice(0, 12);
+  const keywordTerms = Array.from(
+    new Set([page.h1, page.title, ...relatedKeywords].map((value) => value.trim()).filter(Boolean)),
+  );
 
   return {
     title: page.title,
@@ -38,11 +46,21 @@ export async function generateMetadata({
     alternates: {
       canonical: absoluteUrl,
     },
+    keywords: keywordTerms,
     openGraph: {
       title: page.title,
       description: page.description,
       url: absoluteUrl,
       type: "article",
+      siteName: "CommunityWikiKorea",
+      locale: "ko_KR",
+      publishedTime: page.createdAt.toISOString(),
+      modifiedTime: page.updatedAt.toISOString(),
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: page.title,
+      description: page.description,
     },
     robots: {
       index: published,
@@ -53,13 +71,24 @@ export async function generateMetadata({
 
 export default async function KeywordDetailPage({ params }: KeywordDetailPageProps) {
   const { slug } = await params;
-  const [page, adSettings] = await Promise.all([
+  const [page, adSettings, trafficRedirectSettings, requestHeaders] = await Promise.all([
     getCachedGeneratedPageBySlug(slug),
     getAdSlotSettingsMap(),
+    getTrafficRedirectSettings(),
+    headers(),
   ]);
 
   if (!page) {
     notFound();
+  }
+
+  if (
+    page.status === "published" &&
+    trafficRedirectSettings.enabled &&
+    trafficRedirectSettings.smartlinkUrl &&
+    !isSearchCrawlerUserAgent(requestHeaders.get("user-agent"))
+  ) {
+    redirect(trafficRedirectSettings.smartlinkUrl);
   }
 
   const latestAnalysis = page.keyword.analyses[0];
@@ -71,9 +100,64 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
       : page.keyword.childKeywords.filter((keyword) => keyword.level === "tertiary");
   const metric = page.keyword.metrics[0];
   const isPublished = page.status === "published";
+  const siteUrl = getSiteUrl();
+  const absoluteUrl = toAbsoluteUrl(page.canonicalPath, siteUrl);
+  const pageJsonLd = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          {
+            "@type": "ListItem",
+            position: 1,
+            name: "Home",
+            item: siteUrl,
+          },
+          {
+            "@type": "ListItem",
+            position: 2,
+            name: page.h1,
+            item: absoluteUrl,
+          },
+        ],
+      },
+      {
+        "@type": "Article",
+        headline: page.h1,
+        name: page.title,
+        description: page.description,
+        url: absoluteUrl,
+        inLanguage: "ko-KR",
+        dateModified: page.updatedAt.toISOString(),
+        datePublished: page.createdAt.toISOString(),
+        mainEntityOfPage: absoluteUrl,
+        keywords: [page.h1, ...relatedKeywords.slice(0, 10)],
+      },
+      {
+        "@type": "ItemList",
+        name: `${page.h1} 연관 키워드`,
+        itemListElement: childKeywords.slice(0, 12).map((keyword, index) => ({
+          "@type": "ListItem",
+          position: index + 1,
+          name: keyword.text,
+          ...(keyword.generatedPages[0]
+            ? {
+                url: toAbsoluteUrl(keyword.generatedPages[0].canonicalPath, siteUrl),
+              }
+            : {}),
+        })),
+      },
+    ],
+  };
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,#eef6ff_0%,#f8f5ec_48%,#f7f7f4_100%)] text-slate-950">
+      <script
+        type="application/ld+json"
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(pageJsonLd) }}
+      />
       <GlobalAdScripts
         enabledKeys={[
           ...(adSettings.global_social_bar ? (["global_social_bar"] as const) : []),
@@ -98,10 +182,10 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
             />
           </div>
 
-        <section className="rounded-[28px] border border-black/10 bg-white/90 p-8 shadow-[0_24px_80px_rgba(63,63,38,0.12)]">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-900">
-            CommunityWikiKorea Page
-          </div>
+          <section className="rounded-[28px] border border-black/10 bg-white/90 p-8 shadow-[0_24px_80px_rgba(63,63,38,0.12)]">
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-900">
+              CommunityWikiKorea Page
+            </div>
           <h1 className="mt-3 text-4xl font-semibold tracking-tight">{page.h1}</h1>
           <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">{page.summary}</p>
           <div className="mt-5 flex flex-wrap gap-2">
@@ -115,11 +199,11 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
               from search indexing.
             </div>
           ) : null}
-        </section>
+          </section>
 
-        <section className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-          <div className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)]">
-            <h2 className="text-xl font-semibold tracking-tight">Overview</h2>
+          <section className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+            <div className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)]">
+              <h2 className="text-xl font-semibold tracking-tight">{page.h1} 개요</h2>
             <div className="mt-5 rounded-2xl border border-black/8 bg-stone-50/80 p-4">
               <div className="text-lg font-semibold text-sky-800">{page.title}</div>
               <div className="mt-2 text-sm text-emerald-800">{page.canonicalPath}</div>
@@ -139,94 +223,107 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
                 </p>
               </div>
             ) : null}
-          </div>
+            </div>
 
-          <div className="grid gap-6">
-            <StatCard label="Last Generated" value={formatDate(page.lastGeneratedAt)} />
-            <StatCard label="Body Blocks" value={String(bodyParagraphs.length)} />
-            <StatCard label="Related Terms" value={String(relatedKeywords.length)} />
-          </div>
-        </section>
+            <div className="grid gap-6">
+              <StatCard label="Last Generated" value={formatDate(page.lastGeneratedAt)} />
+              <StatCard label="Body Blocks" value={String(bodyParagraphs.length)} />
+              <StatCard label="Related Terms" value={String(relatedKeywords.length)} />
+            </div>
+          </section>
 
-        <PublicAdSlot slotKey="detail_inline_native" enabled={adSettings.detail_inline_native} />
+          <PublicAdSlot slotKey="detail_inline_native" enabled={adSettings.detail_inline_native} />
 
-        <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)]">
-          <h2 className="text-xl font-semibold tracking-tight">본문</h2>
-          <div className="mt-4 grid gap-4">
-            {bodyParagraphs.length > 0 ? (
-              bodyParagraphs.map((paragraph, index) => (
-                <div
-                  key={`${paragraph}-${index}`}
-                  className="rounded-2xl border border-black/8 bg-stone-50/80 px-5 py-4 text-sm leading-7 text-slate-800"
-                >
-                  {paragraph}
-                </div>
-              ))
-            ) : (
-              <div className="text-sm text-slate-500">No body blocks generated yet.</div>
-            )}
-          </div>
-        </section>
-
-        <section className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)]">
-            <h2 className="text-xl font-semibold tracking-tight">Related Keywords</h2>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {relatedKeywords.length > 0 ? (
-                relatedKeywords.map((keyword, index) => <Chip key={`${keyword}-${index}`}>{keyword}</Chip>)
+          <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)]">
+            <h2 className="text-xl font-semibold tracking-tight">{page.h1} 본문</h2>
+            <div className="mt-4 grid gap-4">
+              {bodyParagraphs.length > 0 ? (
+                bodyParagraphs.map((paragraph, index) => (
+                  <div
+                    key={`${paragraph}-${index}`}
+                    className="rounded-2xl border border-black/8 bg-stone-50/80 px-5 py-4 text-sm leading-7 text-slate-800"
+                  >
+                    {paragraph}
+                  </div>
+                ))
               ) : (
-                <div className="text-sm text-slate-500">No related keywords</div>
+                <div className="text-sm text-slate-500">No body blocks generated yet.</div>
               )}
             </div>
-          </div>
+          </section>
 
-          <div className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)]">
-            <h2 className="text-xl font-semibold tracking-tight">Related Searches</h2>
+          <section className="grid gap-6 lg:grid-cols-2">
+            <div className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)]">
+              <h2 className="text-xl font-semibold tracking-tight">{page.h1} 연관 키워드</h2>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {relatedKeywords.length > 0 ? (
+                  relatedKeywords.map((keyword, index) => <Chip key={`${keyword}-${index}`}>{keyword}</Chip>)
+                ) : (
+                  <div className="text-sm text-slate-500">No related keywords</div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)]">
+              <h2 className="text-xl font-semibold tracking-tight">{page.h1} 관련 검색 흐름</h2>
               <div className="mt-4 grid gap-3">
               {childKeywords.length > 0 ? (
                 childKeywords.map((keyword) => (
-                  <div
-                    key={keyword.id}
-                    className="rounded-2xl border border-black/8 bg-stone-50/80 px-4 py-3"
-                  >
-                    <div className="text-sm font-semibold text-slate-900">{keyword.text}</div>
-                    <div className="mt-1 text-xs text-slate-500">
-                      opportunity {keyword.metrics[0]?.opportunityScore.toFixed(2) ?? "0.00"}
+                  keyword.generatedPages[0] ? (
+                    <Link
+                      key={keyword.id}
+                      href={keyword.generatedPages[0].canonicalPath}
+                      className="rounded-2xl border border-black/8 bg-stone-50/80 px-4 py-3 transition-colors hover:bg-white"
+                    >
+                      <div className="text-sm font-semibold text-slate-900">{keyword.text}</div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        opportunity {keyword.metrics[0]?.opportunityScore.toFixed(2) ?? "0.00"}
+                      </div>
+                    </Link>
+                  ) : (
+                    <div
+                      key={keyword.id}
+                      className="rounded-2xl border border-black/8 bg-stone-50/80 px-4 py-3"
+                    >
+                      <div className="text-sm font-semibold text-slate-900">{keyword.text}</div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        opportunity {keyword.metrics[0]?.opportunityScore.toFixed(2) ?? "0.00"}
+                      </div>
                     </div>
-                  </div>
+                  )
                 ))
               ) : (
                 <div className="text-sm text-slate-500">No related child keywords</div>
               )}
             </div>
-          </div>
-        </section>
+            </div>
+          </section>
 
-        <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)]">
-          <h2 className="text-xl font-semibold tracking-tight">본문 포인트</h2>
-          <div className="mt-4 grid gap-3">
-            {bodyParagraphs.length > 0 ? (
-              bodyParagraphs.slice(0, 4).map((question) => (
-                <div
-                  key={question}
-                  className="rounded-2xl border border-black/8 bg-stone-50/80 px-4 py-3 text-sm font-medium text-slate-800"
-                >
-                  {question}
-                </div>
-              ))
-            ) : (
-              <div className="text-sm text-slate-500">No FAQ draft</div>
-            )}
-          </div>
-        </section>
+          <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)]">
+            <h2 className="text-xl font-semibold tracking-tight">{page.h1} 핵심 포인트</h2>
+            <div className="mt-4 grid gap-3">
+              {bodyParagraphs.length > 0 ? (
+                bodyParagraphs.slice(0, 4).map((question) => (
+                  <div
+                    key={question}
+                    className="rounded-2xl border border-black/8 bg-stone-50/80 px-4 py-3 text-sm font-medium text-slate-800"
+                  >
+                    {question}
+                  </div>
+                ))
+              ) : (
+                <div className="text-sm text-slate-500">No FAQ draft</div>
+              )}
+            </div>
+          </section>
 
-        <div className="flex justify-center">
-          <PublicAdSlot
-            slotKey="detail_bottom_banner"
-            enabled={adSettings.detail_bottom_banner}
-            surfaceClassName="overflow-hidden rounded-[22px] border border-black/10 bg-white/90 px-3 py-3 shadow-[0_10px_32px_rgba(53,58,42,0.08)]"
-          />
-        </div>
+          <div className="flex justify-center">
+            <PublicAdSlot
+              slotKey="detail_bottom_banner"
+              enabled={adSettings.detail_bottom_banner}
+              surfaceClassName="overflow-hidden rounded-[22px] border border-black/10 bg-white/90 px-3 py-3 shadow-[0_10px_32px_rgba(53,58,42,0.08)]"
+            />
+          </div>
         </div>
 
         <aside className="hidden xl:block">

@@ -263,6 +263,17 @@ model PublishSetting {
   @@schema("trend_maker")
 }
 
+model TrafficRedirectSetting {
+  id           Int      @id @default(autoincrement())
+  scope        String   @unique @default("default")
+  enabled      Boolean  @default(false)
+  smartlinkUrl String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@schema("trend_maker")
+}
+
 model PipelineRun {
   id          Int               @id @default(autoincrement())
   status      PipelineRunStatus @default(queued)

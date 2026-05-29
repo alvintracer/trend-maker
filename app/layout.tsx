@@ -18,11 +18,32 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL(getSiteUrl()),
+  applicationName: "CommunityWikiKorea",
   title: {
     default: "CommunityWikiKorea",
     template: "%s | CommunityWikiKorea",
   },
   description: "한국 커뮤니티 실시간 트렌드 키워드와 허브 페이지를 모아보는 위키.",
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    type: "website",
+    locale: "ko_KR",
+    siteName: "CommunityWikiKorea",
+    title: "CommunityWikiKorea",
+    description: "한국 커뮤니티 실시간 트렌드 키워드와 허브 페이지를 모아보는 위키.",
+    url: "/",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "CommunityWikiKorea",
+    description: "한국 커뮤니티 실시간 트렌드 키워드와 허브 페이지를 모아보는 위키.",
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 export default function RootLayout({

@@ -38,12 +38,22 @@ export function PublicAdSlot({
         </div>
         <AdScriptSlot
           slotKey={slotKey}
-          className="mx-auto flex min-h-[60px] items-center justify-center"
+          className="mx-auto flex min-h-[60px] items-center justify-center overflow-hidden"
         />
         {width && height ? (
-          <div className="mt-2 text-center text-[10px] text-slate-400">
-            {width}x{height}
-          </div>
+          <>
+            <div
+              className="mx-auto"
+              style={{
+                width: Math.min(width, 728),
+                maxWidth: "100%",
+                minHeight: height,
+              }}
+            />
+            <div className="mt-2 text-center text-[10px] text-slate-400">
+              {width}x{height}
+            </div>
+          </>
         ) : null}
       </div>
     </div>
