@@ -15,6 +15,7 @@ import {
   updateKeywordPinnedAction,
 } from "@/app/keywords/actions";
 import { DcbestIngestPanel } from "@/components/admin/dcbest-ingest-panel";
+import { MainPageIngestPanel } from "@/components/admin/main-page-ingest-panel";
 import { NamuSyncAllButton } from "@/components/admin/namu-sync-all-button";
 import { NamuSyncButton } from "@/components/admin/namu-sync-button";
 import { PipelinePanel } from "@/components/admin/pipeline-panel";
@@ -26,6 +27,7 @@ import {
   getManualPrimaryKeywords,
   getRecentSecondaryKeywords,
 } from "@/lib/keyword-repository";
+import { MAIN_PAGE_SOURCE_IDS, getMainPageSourceSettings } from "@/lib/main-page-sources";
 import { NAMU_AV_ACTIVE_INITIALS } from "@/lib/namu-av-actors";
 import { getLatestPipelineRun } from "@/lib/pipeline-run";
 import { getPublishRulesForDisplay } from "@/lib/publish-service";
@@ -43,6 +45,10 @@ export const metadata: Metadata = {
 
 export default async function AdminPage() {
   await assertAdminAuthenticated();
+  const mainPageSourceSettings = await getMainPageSourceSettings();
+  const mainPageSourceSettingMap = new Map(
+    mainPageSourceSettings.map((setting) => [setting.sourceExternalId, setting]),
+  );
 
   const [
     manualPrimaryKeywords,
@@ -53,6 +59,7 @@ export default async function AdminPage() {
     trafficRedirectSettings,
     dcbestSource,
     dcbestDocumentCount,
+    mainPageSources,
     generatedPages,
     namuPages,
   ] = await Promise.all([
@@ -81,6 +88,44 @@ export default async function AdminPage() {
         },
       },
     }),
+    Promise.all(
+      MAIN_PAGE_SOURCE_IDS.map(async (externalId) => {
+        const [source, rawDocumentCount] = await Promise.all([
+          prisma.source.findUnique({
+            where: {
+              externalId,
+            },
+            select: {
+              externalId: true,
+              name: true,
+              lastCrawledAt: true,
+              lastCrawlStatus: true,
+              lastCrawlMethod: true,
+              lastCrawlDetail: true,
+            },
+          }),
+          prisma.rawDocument.count({
+            where: {
+              source: {
+                externalId,
+              },
+            },
+          }),
+        ]);
+
+        return {
+          externalId,
+          name: source?.name ?? externalId,
+          rawDocumentCount,
+          lastCrawledAt: source?.lastCrawledAt?.toISOString() ?? null,
+          lastCrawlStatus: source?.lastCrawlStatus ?? null,
+          lastCrawlMethod: source?.lastCrawlMethod ?? null,
+          lastCrawlDetail: source?.lastCrawlDetail ?? null,
+          enabled: mainPageSourceSettingMap.get(externalId)?.enabled ?? true,
+          intervalHours: mainPageSourceSettingMap.get(externalId)?.intervalHours ?? 6,
+        };
+      }),
+    ),
     getGeneratedPages(12),
     prisma.generatedPage.findMany({
       where: {
@@ -133,14 +178,42 @@ export default async function AdminPage() {
           </div>
           <div className="mt-8 max-w-4xl">
             <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-              운영 페이지는 수집, 키워드 배치, 페이지 생성만 다룹니다.
+              운영 페이지를 메인페이지와 상세페이지 두 축으로 나눕니다.
             </h1>
             <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600 sm:text-lg">
-              외부 노출은 공개 SEO 페이지가 맡고, 여기서는 DCBest 재료 수집, 최대 30개
-              primary pin, Google Trends secondary 확장, 수동 secondary 추가, 그리고 나무위키
-              초성 묶음 페이지 생성을 관리합니다.
+              메인페이지 매니지먼트는 여러 커뮤니티의 인기 게시글과 제목 기반 키워드를 갱신합니다.
+              상세페이지 매니지먼트는 수동 primary에서 출발해 secondary 확장, 디시 재료 수집,
+              상세페이지 생성과 퍼블리싱까지 관리합니다.
             </p>
           </div>
+        </section>
+
+        <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-900">
+            Main Page Management
+          </div>
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+            메인페이지 게시글 수집과 제목 기반 키워드 갱신
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            디시 라이트, FMKorea best2, 아카라이브, Dogdrip popular/userdog 게시글 제목과 링크를
+            수집하고, 메인페이지에서 보여줄 키워드를 갱신합니다.
+          </p>
+        </section>
+
+        <MainPageIngestPanel initialSources={mainPageSources} />
+
+        <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-900">
+            Detail Page Management
+          </div>
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+            primary에서 상세페이지 생성과 퍼블리싱까지
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            수동 primary 지정, secondary 확장, DCBest 재료 수집, 상세페이지 생성, 퍼블리싱 기준을
+            한 흐름으로 관리합니다.
+          </p>
         </section>
 
         <PipelinePanel initialRun={latestPipelineRun} />

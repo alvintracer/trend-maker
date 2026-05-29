@@ -274,6 +274,17 @@ model TrafficRedirectSetting {
   @@schema("trend_maker")
 }
 
+model MainPageSourceSetting {
+  id             Int      @id @default(autoincrement())
+  sourceExternalId String @unique
+  enabled        Boolean  @default(true)
+  intervalHours  Int      @default(6)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@schema("trend_maker")
+}
+
 model PipelineRun {
   id          Int               @id @default(autoincrement())
   status      PipelineRunStatus @default(queued)

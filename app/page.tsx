@@ -1,55 +1,82 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import Image from "next/image";
 
 import { GlobalAdScripts } from "@/components/ads/global-ad-scripts";
 import { PublicAdSlot } from "@/components/ads/public-ad-slot";
 import { getAdSlotSettingsMap } from "@/lib/ad-settings";
-import { getPublishedGeneratedPages } from "@/lib/generated-page-service";
-import {
-  getPinnedPrimaryKeywords,
-  getTopPrimaryKeywords,
-} from "@/lib/keyword-repository";
-import { toAbsoluteUrl } from "@/lib/seo";
-import { getSecondaryKeywordInventory } from "@/lib/secondary-keyword-service";
+import { MAIN_PAGE_SOURCE_IDS } from "@/lib/main-page-sources";
+import { getLatestRawDocumentsBySourceExternalIds } from "@/lib/raw-document-repository";
 import { getSiteUrl } from "@/lib/site-url";
+
+const STOPWORDS = new Set([
+  "the",
+  "and",
+  "with",
+  "from",
+  "this",
+  "that",
+  "있음",
+  "관련",
+  "정리",
+  "근황",
+  "후기",
+  "정보",
+  "영상",
+  "사진",
+  "사람",
+  "커뮤",
+  "커뮤니티",
+  "실시간",
+  "인기",
+  "게시글",
+  "디시",
+  "dc",
+  "dcinside",
+  "fmkorea",
+  "dogdrip",
+  "arca",
+  "live",
+]);
 
 export const metadata: Metadata = {
   title: "CommunityWikiKorea",
-  description: "한국 커뮤니티에서 지금 뜨는 실시간 트렌드 키워드와 허브 페이지를 모아보는 위키.",
+  description: "한국 커뮤니티 인기 게시글과 제목 기반 키워드를 한 화면에서 추적하는 포털.",
   alternates: {
     canonical: "/",
   },
   openGraph: {
     type: "website",
     title: "CommunityWikiKorea",
-    description: "한국 커뮤니티에서 지금 뜨는 실시간 트렌드 키워드와 허브 페이지를 모아보는 위키.",
+    description: "한국 커뮤니티 인기 게시글과 제목 기반 키워드를 한 화면에서 추적하는 포털.",
     url: "/",
   },
   twitter: {
     card: "summary_large_image",
     title: "CommunityWikiKorea",
-    description: "한국 커뮤니티에서 지금 뜨는 실시간 트렌드 키워드와 허브 페이지를 모아보는 위키.",
+    description: "한국 커뮤니티 인기 게시글과 제목 기반 키워드를 한 화면에서 추적하는 포털.",
   },
 };
 
 export default async function Home() {
-  const [topKeywords, pinnedKeywords, publishedPages, featuredSecondaryKeywords, adSettings] = await Promise.all([
-    getTopPrimaryKeywords(12),
-    getPinnedPrimaryKeywords(6),
-    getPublishedGeneratedPages(12),
-    getSecondaryKeywordInventory({
-      limit: 18,
-      sort: "opportunity",
-    }),
+  const [latestCommunityDocuments, adSettings] = await Promise.all([
+    getLatestRawDocumentsBySourceExternalIds([...MAIN_PAGE_SOURCE_IDS], 200),
     getAdSlotSettingsMap(),
   ]);
 
-  const liveKeywords = pinnedKeywords.length > 0 ? pinnedKeywords : topKeywords.slice(0, 10);
-  const featuredPages = publishedPages.slice(0, 6);
-  const publishedPageByKeywordId = new Map(
-    publishedPages.map((page) => [page.keywordId, page]),
-  );
-  const heroSecondaryKeywords = featuredSecondaryKeywords.slice(0, 12);
+  const latestCommunityFeed = latestCommunityDocuments
+    .slice()
+    .sort((left, right) => right.crawledAt.getTime() - left.crawledAt.getTime());
+  const sourceCards = MAIN_PAGE_SOURCE_IDS.map((externalId) => {
+    const items = latestCommunityFeed.filter((document) => document.source.externalId === externalId);
+
+    return {
+      externalId,
+      name: items[0]?.source.name ?? externalId,
+      items,
+      latestCrawledAt: items[0]?.crawledAt ?? null,
+    };
+  });
+  const extractedKeywords = extractCommunityKeywords(latestCommunityFeed).slice(0, 42);
   const siteUrl = getSiteUrl();
   const homeJsonLd = {
     "@context": "https://schema.org",
@@ -59,24 +86,21 @@ export default async function Home() {
         name: "CommunityWikiKorea",
         url: siteUrl,
         inLanguage: "ko-KR",
-        description: "한국 커뮤니티에서 지금 뜨는 실시간 트렌드 키워드와 허브 페이지를 모아보는 위키.",
+        description: "한국 커뮤니티 인기 게시글과 제목 기반 키워드를 한 화면에서 추적하는 포털.",
       },
       {
         "@type": "CollectionPage",
-        name: "한국 커뮤니티 실시간 트렌드 키워드",
+        name: "실시간 커뮤니티 인기 게시글",
         url: siteUrl,
         inLanguage: "ko-KR",
-        description: "한국 커뮤니티에서 지금 뜨는 실시간 트렌드 키워드와 허브 페이지를 모아보는 위키.",
+        description: "디시, FMKorea, 아카라이브, Dogdrip 인기 게시글 제목과 링크를 모은 포털.",
         mainEntity: {
           "@type": "ItemList",
-          itemListElement: liveKeywords.map((keyword, index) => ({
+          itemListElement: latestCommunityFeed.slice(0, 50).map((document, index) => ({
             "@type": "ListItem",
             position: index + 1,
-            name: keyword.text,
-            url: toAbsoluteUrl(
-              publishedPageByKeywordId.get(keyword.id)?.canonicalPath ?? "/",
-              siteUrl,
-            ),
+            name: document.title || "제목 없음",
+            url: document.url,
           })),
         },
       },
@@ -84,7 +108,7 @@ export default async function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#f0f7e8_0%,#f5f1e8_42%,#f7f6f2_100%)] text-slate-950">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#edf7e5_0%,#f6f2e8_42%,#f8f7f2_100%)] text-slate-950">
       <script
         type="application/ld+json"
         suppressHydrationWarning
@@ -96,6 +120,7 @@ export default async function Home() {
           ...(adSettings.global_popunder ? (["global_popunder"] as const) : []),
         ]}
       />
+
       <div className="mx-auto grid w-full max-w-[1500px] gap-6 px-4 py-6 lg:grid-cols-[220px_minmax(0,1fr)_220px] lg:px-6 lg:py-8">
         <aside className="order-2 lg:order-1">
           <PublicAdSlot
@@ -107,27 +132,97 @@ export default async function Home() {
 
         <div className="order-1 flex flex-col gap-6 lg:order-2">
           <section className="rounded-[32px] border border-black/10 bg-[linear-gradient(135deg,rgba(19,39,27,0.97),rgba(29,56,38,0.94))] px-6 py-8 text-white shadow-[0_32px_100px_rgba(22,30,20,0.18)] sm:px-8">
-            <div className="mx-auto max-w-4xl text-center">
-              <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100">
-                CommunityWikiKorea
-              </span>
+            <div className="mx-auto max-w-5xl text-center">
+              <div className="flex justify-center">
+                <div className="inline-flex items-center gap-3 rounded-full border border-white/15 bg-white/10 px-3 py-2">
+                  <Image
+                    src="/icon-192.png"
+                    alt="CommunityWikiKorea logo"
+                    width={28}
+                    height={28}
+                    className="rounded-lg"
+                  />
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100">
+                    CommunityWikiKorea
+                  </span>
+                </div>
+              </div>
               <h1 className="mt-5 text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
-                지금 한국 커뮤니티에서 가장 많이 올라오는 키워드
+                바로 지금, 한국 커뮤니티 인기 게시글과 키워드
               </h1>
-              <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-emerald-50/82 sm:text-lg">
-                설명보다 흐름을 먼저 보여줍니다. 아래 보드에서 지금 뜨는 키워드를 보고,
-                연결된 허브가 있으면 바로 이동할 수 있습니다.
+              <p className="mx-auto mt-5 max-w-3xl text-base leading-7 text-emerald-50/82 sm:text-lg">
+                메인페이지는 여러 커뮤니티의 인기 게시글 제목과 링크를 모으고, 그 제목들에서
+                키워드를 추출해 보여줍니다. 상세페이지 생성 파이프라인과는 별도로 움직이는
+                실시간 포털 영역입니다.
               </p>
               <div className="mt-6 flex flex-wrap justify-center gap-2">
-                {heroSecondaryKeywords.slice(0, 8).map((keyword) => (
+                {extractedKeywords.slice(0, 10).map((keyword) => (
                   <span
-                    key={keyword.id}
+                    key={keyword.text}
                     className="rounded-full border border-white/12 bg-white/10 px-3 py-1.5 text-xs font-medium text-emerald-50"
                   >
                     {keyword.text}
                   </span>
                 ))}
               </div>
+            </div>
+          </section>
+
+          <section className="rounded-[30px] border border-black/10 bg-[#17241a] p-5 text-white shadow-[0_16px_60px_rgba(24,32,22,0.22)] sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-100/80">
+                  Community Feed
+                </div>
+                <h2 className="mt-2 text-2xl font-semibold tracking-tight">
+                  실시간 커뮤니티 인기 게시글
+                </h2>
+              </div>
+              <span className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-medium text-emerald-100">
+                총 {latestCommunityFeed.length}건
+              </span>
+            </div>
+
+            <p className="mt-4 text-sm leading-6 text-slate-300">
+              현재 저장된 모든 메인페이지용 게시글 제목을 시간순으로 그대로 보여줍니다. 길어져도
+              자르지 않고 유지합니다.
+            </p>
+
+            <div className="mt-5 grid gap-3">
+              {latestCommunityFeed.length > 0 ? (
+                latestCommunityFeed.map((document, index) => (
+                  <a
+                    key={document.id}
+                    href={document.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="group rounded-[22px] border border-white/10 bg-white/6 px-4 py-4 transition-colors hover:bg-white/10"
+                  >
+                    <div className="flex items-start gap-3">
+                      <span className="inline-flex h-8 min-w-8 items-center justify-center rounded-full bg-white/10 px-2 text-xs font-semibold text-emerald-100">
+                        {index + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-100">
+                            {document.source.name}
+                          </span>
+                          <span className="text-xs text-slate-400">
+                            수집 {formatDate(document.crawledAt)}
+                          </span>
+                        </div>
+                        <div className="mt-2 text-sm font-semibold leading-6 text-white group-hover:text-emerald-100">
+                          {document.title || "제목 없음"}
+                        </div>
+                      </div>
+                    </div>
+                  </a>
+                ))
+              ) : (
+                <div className="rounded-[22px] border border-white/10 bg-white/6 px-4 py-5 text-sm text-slate-300">
+                  아직 노출할 커뮤니티 인기 게시글이 없습니다.
+                </div>
+              )}
             </div>
           </section>
 
@@ -139,241 +234,101 @@ export default async function Home() {
             />
           </div>
 
-          <section className="rounded-[30px] border border-black/10 bg-white/88 p-5 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur sm:p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-900">
-                  Trend Cluster
-                </div>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                  키워드 클러스터 맵
-                </h2>
-              </div>
-              <div className="rounded-full border border-black/10 bg-stone-50 px-4 py-2 text-sm font-medium text-slate-700">
-                공개 허브 {publishedPages.length}개
-              </div>
-            </div>
-
-            <div className="mt-6 rounded-[28px] border border-[#d8d4c7] bg-[linear-gradient(180deg,#fbfaf6_0%,#f4f0e5_100%)] p-4 sm:p-5">
-              <div className="rounded-[22px] border border-[#d7e2cc] bg-[radial-gradient(circle_at_center,#edf6dd_0%,#f8f4ea_62%,#fcfbf7_100%)] p-5">
-                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_320px]">
-                  <div className="flex flex-wrap justify-center gap-3">
-                    {liveKeywords.map((keyword, index) => {
-                      const metric = keyword.metrics[0];
-                      const sizeClass =
-                        index === 0
-                          ? "text-3xl sm:text-4xl"
-                          : index < 3
-                            ? "text-2xl sm:text-3xl"
-                            : index < 6
-                              ? "text-xl sm:text-2xl"
-                              : "text-lg sm:text-xl";
-
-                      const publishedPage = publishedPageByKeywordId.get(keyword.id) ?? null;
-                      const chipClassName = `rounded-full border border-emerald-950/10 px-4 py-2 font-semibold tracking-tight text-slate-950 shadow-[0_10px_30px_rgba(40,52,32,0.08)] ${sizeClass} ${
-                        index % 4 === 0
-                          ? "bg-[#dfeccc]"
-                          : index % 4 === 1
-                            ? "bg-[#f2e7c8]"
-                            : index % 4 === 2
-                              ? "bg-[#e7efe8]"
-                              : "bg-[#f4efe3]"
-                      }`;
-
-                      if (!publishedPage) {
-                        return (
-                          <span key={keyword.id} className={chipClassName}>
-                            {keyword.text}
-                            <span className="ml-2 text-xs font-medium text-slate-500">
-                              {metric ? metric.frequencyScore : 0}
-                            </span>
-                          </span>
-                        );
-                      }
-
-                      return (
-                        <Link
-                          key={keyword.id}
-                          href={publishedPage.canonicalPath}
-                          className={`${chipClassName} transition-transform hover:-translate-y-0.5`}
-                        >
-                          {keyword.text}
-                          <span className="ml-2 text-xs font-medium text-slate-500">
-                            {metric ? metric.frequencyScore : 0}
-                          </span>
-                        </Link>
-                      );
-                    })}
-                  </div>
-
-                  <PublicAdSlot
-                    slotKey="home_inline_rectangle"
-                    enabled={adSettings.home_inline_rectangle}
-                    surfaceClassName="overflow-hidden rounded-[22px] border border-black/10 bg-white/80 p-3"
-                  />
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-            <div className="rounded-[30px] border border-black/10 bg-white/92 p-5 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur sm:p-6">
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-900">
-                Realtime Board
-              </div>
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                실시간 순위
-              </h2>
-              <div className="mt-5 overflow-hidden rounded-[24px] border border-[#d7d2c6]">
-                <div className="grid grid-cols-[72px_minmax(0,1fr)_92px] bg-[#ebe5d6] px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600">
-                  <div>Rank</div>
-                  <div>Keyword</div>
-                  <div className="text-right">Hub</div>
-                </div>
-                {liveKeywords.map((keyword, index) => {
-                  const metric = keyword.metrics[0];
-                  const relatedPage = publishedPageByKeywordId.get(keyword.id) ?? null;
-
-                  return (
-                    <article
-                      key={keyword.id}
-                      className="grid grid-cols-[72px_minmax(0,1fr)_92px] items-center border-t border-[#ebe5d9] bg-[#fdfcf8] px-4 py-4"
-                    >
-                      <div className="text-center">
-                        <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-slate-950 text-sm font-semibold text-white">
-                          {index + 1}
-                        </span>
-                      </div>
-                      <div className="min-w-0">
-                        <div className="truncate text-lg font-semibold text-slate-950">
-                          {keyword.text}
-                        </div>
-                        <div className="mt-1 text-xs text-slate-500">
-                          score {metric ? metric.opportunityScore.toFixed(2) : "0.00"}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        {relatedPage ? (
-                          <Link
-                            href={relatedPage.canonicalPath}
-                            className="shrink-0 rounded-full border border-black/10 bg-white px-3 py-2 text-xs font-semibold text-slate-800 transition-colors hover:bg-stone-100"
-                          >
-                            허브 보기
-                          </Link>
-                        ) : (
-                          <span className="text-xs text-slate-400">준비중</span>
-                        )}
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="rounded-[30px] border border-black/10 bg-[#17241a] p-5 text-white shadow-[0_16px_60px_rgba(24,32,22,0.22)] sm:p-6">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-100/80">
-                    Hot Hubs
-                  </div>
-                  <h2 className="mt-2 text-2xl font-semibold tracking-tight">바로 읽는 허브</h2>
-                </div>
-              </div>
-
-              {featuredPages.length > 0 ? (
-                <div className="mt-5 grid gap-3">
-                  {featuredPages.map((page) => (
-                    <Link
-                      key={page.id}
-                      href={page.canonicalPath}
-                      className="group rounded-[24px] border border-white/10 bg-white/6 px-4 py-4 transition-colors hover:bg-white/10"
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <h3 className="text-lg font-semibold text-white group-hover:text-emerald-100">
-                            {page.h1}
-                          </h3>
-                          <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-300">
-                            {page.summary || page.description}
-                          </p>
-                        </div>
-                        <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.12em] text-emerald-100">
-                          hub
-                        </span>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              ) : (
-                <div className="mt-5 rounded-[24px] border border-white/10 bg-white/5 px-5 py-6 text-sm text-slate-300">
-                  공개 허브가 아직 없으면 메인에서는 키워드 흐름만 먼저 보여줍니다.
-                </div>
-              )}
-            </div>
-          </section>
-
           <section className="rounded-[30px] border border-black/10 bg-white/92 p-5 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur sm:p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-900">
-                  Secondary Watchlist
+                  Title Keywords
                 </div>
                 <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                  지금 같이 묶여서 뜨는 세부 키워드
+                  여러 소스 제목에서 뽑은 키워드
                 </h2>
               </div>
               <div className="rounded-full border border-black/10 bg-stone-50 px-4 py-2 text-sm font-medium text-slate-700">
-                세컨더리 {featuredSecondaryKeywords.length}개 노출 중
+                키워드 {extractedKeywords.length}개
               </div>
             </div>
 
-            <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {featuredSecondaryKeywords.map((keyword) => {
-                const metric = keyword.metrics[0];
-                const latestPage = keyword.generatedPages[0] ?? null;
+            <div className="mt-4 rounded-[24px] border border-[#e3dccf] bg-[#fffdf8] p-4">
+              <p className="text-sm leading-6 text-slate-600">
+                메인페이지용으로 수집한 게시글 제목만 대상으로 단순 빈도 기반 키워드를 추출했습니다.
+                이 영역이 메인페이지 관리 파이프라인의 키워드 레이어입니다.
+              </p>
+            </div>
 
-                return (
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {extractedKeywords.length > 0 ? (
+                extractedKeywords.map((keyword, index) => (
                   <article
-                    key={keyword.id}
-                    className="rounded-[24px] border border-[#ded8cb] bg-[#fcfbf7] px-4 py-4"
+                    key={keyword.text}
+                    className="rounded-[24px] border border-[#ddd7ca] bg-[#fcfbf7] px-4 py-4"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-lg font-semibold text-slate-950">{keyword.text}</div>
                         <div className="mt-1 text-xs text-slate-500">
-                          opp {metric ? metric.opportunityScore.toFixed(2) : "0.00"} · parents {keyword.suggestedBy.length}
+                          title hits {keyword.count} · sources {keyword.sourceCount}
                         </div>
                       </div>
                       <span className="rounded-full bg-[#e8f0df] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-900">
-                        secondary
+                        #{index + 1}
                       </span>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {keyword.suggestedBy.slice(0, 3).map((relation) => (
+                      {keyword.sources.map((source) => (
                         <span
-                          key={`${keyword.id}-${relation.parentKeywordId}`}
+                          key={`${keyword.text}-${source}`}
                           className="rounded-full border border-black/10 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700"
                         >
-                          {relation.parentKeyword.text}
+                          {source}
                         </span>
                       ))}
                     </div>
-                    <div className="mt-4 flex items-center justify-between gap-3">
-                      <div className="text-sm text-slate-600">
-                        {latestPage ? latestPage.title : "페이지 준비중"}
-                      </div>
-                      {latestPage ? (
-                        <Link
-                          href={latestPage.canonicalPath}
-                          className="rounded-full border border-black/10 bg-white px-3 py-2 text-xs font-semibold text-slate-800 transition-colors hover:bg-stone-100"
-                        >
-                          이동
-                        </Link>
-                      ) : null}
-                    </div>
                   </article>
-                );
-              })}
+                ))
+              ) : (
+                <div className="rounded-[24px] border border-dashed border-black/10 bg-stone-50/70 px-4 py-6 text-sm text-slate-500 sm:col-span-2 xl:col-span-3">
+                  제목 기반 키워드를 추출할 데이터가 아직 없습니다.
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-[30px] border border-black/10 bg-white/88 p-5 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-900">
+                  Source Status
+                </div>
+                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                  메인페이지 수집 소스 현황
+                </h2>
+              </div>
+              <div className="rounded-full border border-black/10 bg-stone-50 px-4 py-2 text-sm font-medium text-slate-700">
+                소스 {sourceCards.length}개
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {sourceCards.map((source) => (
+                <article
+                  key={source.externalId}
+                  className="rounded-[24px] border border-[#ddd7ca] bg-[#fcfbf7] px-4 py-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-lg font-semibold text-slate-950">{source.name}</div>
+                      <div className="mt-1 text-xs text-slate-500">{source.externalId}</div>
+                    </div>
+                    <span className="rounded-full border border-black/10 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
+                      posts {source.items.length}
+                    </span>
+                  </div>
+                  <div className="mt-4 text-sm text-slate-600">
+                    최신 수집 {source.latestCrawledAt ? formatDate(source.latestCrawledAt) : "-"}
+                  </div>
+                </article>
+              ))}
             </div>
           </section>
 
@@ -390,4 +345,82 @@ export default async function Home() {
       </div>
     </main>
   );
+}
+
+function extractCommunityKeywords(
+  documents: Array<{
+    title: string | null;
+    source: {
+      name: string;
+    };
+  }>,
+) {
+  const keywordMap = new Map<
+    string,
+    {
+      text: string;
+      count: number;
+      sources: Set<string>;
+    }
+  >();
+
+  for (const document of documents) {
+    const title = (document.title ?? "").trim();
+
+    if (!title) {
+      continue;
+    }
+
+    const tokens = new Set(
+      title
+        .split(/[^0-9A-Za-z가-힣]+/)
+        .map((token) => token.trim())
+        .filter((token) => token.length >= 2 && token.length <= 20)
+        .filter((token) => !/^\d+$/.test(token))
+        .filter((token) => !STOPWORDS.has(token.toLowerCase())),
+    );
+
+    for (const token of tokens) {
+      const normalized = token.toLowerCase();
+      const existing = keywordMap.get(normalized);
+
+      if (existing) {
+        existing.count += 1;
+        existing.sources.add(document.source.name);
+        continue;
+      }
+
+      keywordMap.set(normalized, {
+        text: token,
+        count: 1,
+        sources: new Set([document.source.name]),
+      });
+    }
+  }
+
+  return Array.from(keywordMap.values())
+    .map((keyword) => ({
+      text: keyword.text,
+      count: keyword.count,
+      sourceCount: keyword.sources.size,
+      sources: [...keyword.sources].sort(),
+    }))
+    .sort((left, right) => {
+      if (right.sourceCount !== left.sourceCount) {
+        return right.sourceCount - left.sourceCount;
+      }
+
+      if (right.count !== left.count) {
+        return right.count - left.count;
+      }
+
+      return left.text.localeCompare(right.text, "ko");
+    });
+}
+
+function formatDate(value: Date) {
+  return new Intl.DateTimeFormat("ko-KR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(value);
 }

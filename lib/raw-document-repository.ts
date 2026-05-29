@@ -52,3 +52,74 @@ export async function storeRawDocumentsForSource(
 export async function getRawDocumentCount() {
   return prisma.rawDocument.count();
 }
+
+export async function getLatestRawDocumentsBySourceExternalId(
+  externalId: string,
+  limit = 12,
+) {
+  return prisma.rawDocument.findMany({
+    where: {
+      source: {
+        externalId,
+      },
+    },
+    select: {
+      id: true,
+      url: true,
+      title: true,
+      crawledAt: true,
+      source: {
+        select: {
+          name: true,
+          externalId: true,
+        },
+      },
+    },
+    orderBy: [{ crawledAt: "desc" }, { id: "desc" }],
+    take: limit,
+  });
+}
+
+export async function getLatestRawDocumentsBySourceExternalIds(
+  externalIds: string[],
+  limitPerSource = 12,
+) {
+  const documents = await prisma.rawDocument.findMany({
+    where: {
+      source: {
+        externalId: {
+          in: externalIds,
+        },
+      },
+    },
+    select: {
+      id: true,
+      url: true,
+      title: true,
+      crawledAt: true,
+      source: {
+        select: {
+          name: true,
+          externalId: true,
+        },
+      },
+    },
+    orderBy: [{ crawledAt: "desc" }, { id: "desc" }],
+    take: externalIds.length * Math.max(limitPerSource, 1) * 6,
+  });
+
+  const counts = new Map<string, number>();
+  const filtered = documents.filter((document) => {
+    const externalId = document.source.externalId;
+    const current = counts.get(externalId) ?? 0;
+
+    if (current >= limitPerSource) {
+      return false;
+    }
+
+    counts.set(externalId, current + 1);
+    return true;
+  });
+
+  return filtered;
+}
