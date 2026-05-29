@@ -38,7 +38,6 @@ type PipelineRunRequestBody = {
   publishEligible?: boolean;
   secondaryForceRefresh?: boolean;
   skipAnalysis?: boolean;
-  skipHubs?: boolean;
 };
 
 async function fetchLatestRun() {
@@ -167,6 +166,19 @@ export function PipelinePanel({ initialRun }: { initialRun: PipelineRunView | nu
         ? parsedMaxPrimaryKeywords
         : 30;
 
+    if (!includeSecondary && !includePageGeneration && includePublish) {
+      return {
+        startFrom: "publish",
+        endAt: "publish",
+        skipIngest: true,
+        primarySelection: "manual",
+        maxPrimaryKeywords: maxPrimary,
+        publishEligible: true,
+        secondaryForceRefresh: false,
+        skipAnalysis: true,
+      };
+    }
+
     if (!includeSecondary) {
       const endAt = includePublish ? "publish" : "pages";
       return {
@@ -178,7 +190,6 @@ export function PipelinePanel({ initialRun }: { initialRun: PipelineRunView | nu
         publishEligible: includePublish,
         secondaryForceRefresh: false,
         skipAnalysis: true,
-        skipHubs: true,
       };
     }
 
@@ -193,7 +204,6 @@ export function PipelinePanel({ initialRun }: { initialRun: PipelineRunView | nu
       publishEligible: includePublish,
       secondaryForceRefresh: forceRefresh,
       skipAnalysis: true,
-      skipHubs: true,
     };
   }
 
@@ -268,12 +278,9 @@ export function PipelinePanel({ initialRun }: { initialRun: PipelineRunView | nu
         <BatchToggle
           checked={includePageGeneration}
           label="Page Generation"
-          description="secondary + DCBest 재료로 공개 페이지 생성"
+          description="primary 기준으로 secondary와 DCBest 재료를 묶어 공개 페이지 생성"
           onChange={(value) => {
             setIncludePageGeneration(value);
-            if (!value) {
-              setIncludePublish(false);
-            }
           }}
         />
         <BatchToggle
@@ -281,7 +288,6 @@ export function PipelinePanel({ initialRun }: { initialRun: PipelineRunView | nu
           label="Publish"
           description="생성된 페이지를 바로 색인 가능 상태로 publish"
           onChange={setIncludePublish}
-          disabled={!includePageGeneration}
         />
       </div>
 

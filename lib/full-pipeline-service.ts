@@ -1,7 +1,6 @@
-import { KeywordLevel, KeywordStatus } from "@prisma/client";
+import { GeneratedPageStatus, KeywordLevel, KeywordStatus } from "@prisma/client";
 
 import { generatePagesForKeywords } from "@/lib/generated-page-service";
-import { clusterSecondaryKeywords } from "@/lib/hub-service";
 import { ingestSource } from "@/lib/ingestion-service";
 import { generateKeywordAnalysesForKeywords } from "@/lib/keyword-analysis-service";
 import { generatePrimaryKeywordsForSources } from "@/lib/keyword-service";
@@ -18,7 +17,7 @@ import {
   updatePipelineRunSteps,
 } from "@/lib/pipeline-run";
 import { prisma } from "@/lib/prisma";
-import { publishGeneratedPage, publishHub } from "@/lib/publish-service";
+import { publishGeneratedPage } from "@/lib/publish-service";
 import { generateSecondaryKeywordsForPrimaryKeywords } from "@/lib/secondary-keyword-service";
 
 const DEFAULT_SOURCE_IDS = ["dcinside", "fmkorea", "mlbpark", "dogdrip"] as const;
@@ -27,7 +26,6 @@ const STAGE_ORDER: PipelineStep["id"][] = [
   "primary",
   "secondary",
   "analysis",
-  "hubs",
   "pages",
   "publish",
 ];
@@ -47,7 +45,6 @@ type FullPipelineOptions = {
   primarySelection?: PrimarySelectionMode;
   secondaryForceRefresh?: boolean;
   skipAnalysis?: boolean;
-  skipHubs?: boolean;
 };
 
 type IngestionSuccess = {
@@ -206,7 +203,6 @@ export async function runFullPipeline(
   const primarySelection = options.primarySelection ?? "auto";
   const secondaryForceRefresh = options.secondaryForceRefresh ?? false;
   const skipAnalysis = options.skipAnalysis ?? false;
-  const skipHubs = options.skipHubs ?? false;
   const stageResolver = createStageDispositionResolver(startFrom, endAt);
   const notify = async (update: StageUpdate) => {
     await hooks.onStageUpdate?.(update);
@@ -223,7 +219,6 @@ export async function runFullPipeline(
     KeywordWithMetrics & { analyses: Array<{ generatedAt: Date }> }
   > = [];
   let selectedSecondaryKeywordIds: number[] = [];
-  let analyzedSecondaryIds: number[] = [];
 
   let primaryResult:
     | Awaited<ReturnType<typeof generatePrimaryKeywordsForSources>>
@@ -533,54 +528,7 @@ export async function runFullPipeline(
     });
   }
 
-  const analyzedSecondaryKeywords = await prisma.keyword.findMany({
-    where: {
-      id: {
-        in: selectedSecondaryKeywordIds,
-      },
-      level: KeywordLevel.secondary,
-      status: KeywordStatus.analyzed,
-      analyses: {
-        some: {},
-      },
-    },
-    select: {
-      id: true,
-    },
-  });
-  analyzedSecondaryIds = analyzedSecondaryKeywords.map((keyword) => keyword.id);
-  const pageCandidateKeywordIds =
-    analyzedSecondaryIds.length > 0 ? analyzedSecondaryIds : selectedSecondaryKeywordIds;
-
-  const hubDisposition = stageResolver.resolve("hubs");
-  if (hubDisposition === "run") {
-    await assertContinuable();
-    await notify({ stepId: "hubs", status: "running" });
-  } else {
-    await notify({
-      stepId: "hubs",
-      status: "skipped",
-      summary:
-        hubDisposition === "before"
-          ? "Existing hub clusters reused"
-          : `Pipeline target reached after ${endAt}`,
-    });
-  }
-
-  const hubResult =
-    hubDisposition === "run" && !skipHubs && pageCandidateKeywordIds.length > 0
-      ? await clusterSecondaryKeywords(pageCandidateKeywordIds)
-      : { hubCount: 0, mappedKeywordCount: 0 };
-
-  if (hubDisposition === "run") {
-    await notify({
-      stepId: "hubs",
-      status: skipHubs ? "skipped" : "completed",
-      summary: skipHubs
-        ? "Hub clustering disabled from admin batch"
-        : `${hubResult.hubCount} hubs materialized`,
-    });
-  }
+  const pageCandidateKeywordIds = selectedPrimaryKeywordIds;
 
   const pageDisposition = stageResolver.resolve("pages");
   if (pageDisposition === "run") {
@@ -628,48 +576,44 @@ export async function runFullPipeline(
   }
 
   if (publishDisposition === "run" && publishEligible && pageCandidateKeywordIds.length > 0) {
-    const generatedPages = await prisma.generatedPage.findMany({
-      where: {
-        keywordId: {
-          in: pageCandidateKeywordIds,
-        },
-      },
-      select: {
-        id: true,
-        hubId: true,
-      },
-    });
-
-    const publishedHubIds = new Set<number>();
+    const generatedPages =
+      startFrom === "publish"
+        ? await prisma.generatedPage.findMany({
+            where: {
+              status: GeneratedPageStatus.ready,
+            },
+            select: {
+              id: true,
+            },
+            orderBy: {
+              id: "asc",
+            },
+          })
+        : await prisma.generatedPage.findMany({
+            where: {
+              keywordId: {
+                in: pageCandidateKeywordIds,
+              },
+            },
+            select: {
+              id: true,
+            },
+          });
 
     for (const page of generatedPages) {
       await assertContinuable();
       try {
-        if (page.hubId) {
-          if (publishedHubIds.has(page.hubId)) {
-            continue;
-          }
-
-          await publishHub(page.hubId);
-          publishedHubIds.add(page.hubId);
-          publishResults.push({
-            ok: true,
-            type: "hub",
-            targetId: page.hubId,
-          });
-        } else {
-          await publishGeneratedPage(page.id);
-          publishResults.push({
-            ok: true,
-            type: "page",
-            targetId: page.id,
-          });
-        }
+        await publishGeneratedPage(page.id);
+        publishResults.push({
+          ok: true,
+          type: "page",
+          targetId: page.id,
+        });
       } catch (error) {
         publishResults.push({
           ok: false,
-          type: page.hubId ? "hub" : "page",
-          targetId: page.hubId ?? page.id,
+          type: "page",
+          targetId: page.id,
           error: error instanceof Error ? error.message : "Unknown publish error",
         });
       }
@@ -702,7 +646,6 @@ export async function runFullPipeline(
       selectedKeywordTexts: selectedSecondaryKeywords.map((keyword) => keyword.text),
     },
     analysis: analysisResult,
-    hubs: hubResult,
     pages: pageResult,
     publish: {
       attempted: publishResults.length,

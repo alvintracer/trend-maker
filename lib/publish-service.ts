@@ -1,15 +1,10 @@
 import { GeneratedPageStatus, HubStatus, KeywordLevel, KeywordStatus } from "@prisma/client";
 
+import { DEFAULT_PUBLISH_RULES, getPublishRules } from "@/lib/publish-settings";
 import { prisma } from "@/lib/prisma";
 
-const PUBLISH_RULES = {
-  minRepresentativeOpportunity: 14,
-  minSecondaryCount: 1,
-  minTertiaryCount: 2,
-  minSummaryLength: 60,
-} as const;
-
 export async function evaluateHubPublishReadiness(hubId: number) {
+  const publishRules = await getPublishRules();
   const hub = await prisma.hub.findUnique({
     where: { id: hubId },
     include: {
@@ -71,20 +66,20 @@ export async function evaluateHubPublishReadiness(hubId: number) {
     blockers.push("Representative keyword is not analyzed");
   }
 
-  if (opportunity < PUBLISH_RULES.minRepresentativeOpportunity) {
-    blockers.push(`Opportunity is below ${PUBLISH_RULES.minRepresentativeOpportunity}`);
+  if (opportunity < publishRules.minRepresentativeOpportunity) {
+    blockers.push(`Opportunity is below ${publishRules.minRepresentativeOpportunity}`);
   }
 
-  if (secondaryCount < PUBLISH_RULES.minSecondaryCount) {
-    blockers.push(`Secondary count is below ${PUBLISH_RULES.minSecondaryCount}`);
+  if (secondaryCount < publishRules.minSecondaryCount) {
+    blockers.push(`Secondary count is below ${publishRules.minSecondaryCount}`);
   }
 
-  if (tertiaryCount < PUBLISH_RULES.minTertiaryCount) {
-    blockers.push(`Tertiary count is below ${PUBLISH_RULES.minTertiaryCount}`);
+  if (tertiaryCount < publishRules.minTertiaryCount) {
+    blockers.push(`Tertiary count is below ${publishRules.minTertiaryCount}`);
   }
 
-  if ((summary ?? "").trim().length < PUBLISH_RULES.minSummaryLength) {
-    blockers.push(`Summary is shorter than ${PUBLISH_RULES.minSummaryLength} chars`);
+  if ((summary ?? "").trim().length < publishRules.minSummaryLength) {
+    blockers.push(`Summary is shorter than ${publishRules.minSummaryLength} chars`);
   }
 
   if (!hasGeneratedPage) {
@@ -156,6 +151,7 @@ export async function unpublishHub(hubId: number) {
 }
 
 export async function publishGeneratedPage(pageId: number) {
+  const publishRules = await getPublishRules();
   const page = await prisma.generatedPage.findUnique({
     where: { id: pageId },
     include: {
@@ -190,16 +186,19 @@ export async function publishGeneratedPage(pageId: number) {
 
   const opportunity = page.keyword.metrics[0]?.opportunityScore ?? 0;
 
-  if (page.keyword.status !== KeywordStatus.analyzed) {
-    throw new Error("Keyword is not analyzed");
+  if (
+    page.keyword.status !== KeywordStatus.tracking &&
+    page.keyword.status !== KeywordStatus.analyzed
+  ) {
+    throw new Error("Keyword is not eligible for publish");
   }
 
-  if (opportunity < PUBLISH_RULES.minRepresentativeOpportunity) {
-    throw new Error(`Opportunity is below ${PUBLISH_RULES.minRepresentativeOpportunity}`);
+  if (opportunity < publishRules.minRepresentativeOpportunity) {
+    throw new Error(`Opportunity is below ${publishRules.minRepresentativeOpportunity}`);
   }
 
-  if ((page.summary ?? "").trim().length < PUBLISH_RULES.minSummaryLength) {
-    throw new Error(`Summary is shorter than ${PUBLISH_RULES.minSummaryLength} chars`);
+  if ((page.summary ?? "").trim().length < publishRules.minSummaryLength) {
+    throw new Error(`Summary is shorter than ${publishRules.minSummaryLength} chars`);
   }
 
   await prisma.generatedPage.update({
@@ -227,6 +226,10 @@ export async function unpublishGeneratedPage(pageId: number) {
   });
 }
 
-export function getPublishRules() {
-  return PUBLISH_RULES;
+export async function getPublishRulesForDisplay() {
+  return getPublishRules();
+}
+
+export function getDefaultPublishRules() {
+  return DEFAULT_PUBLISH_RULES;
 }

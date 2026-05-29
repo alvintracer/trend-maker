@@ -3,8 +3,7 @@
 import { useActionState } from "react";
 
 import { syncNamuInitialPageAction } from "@/app/admin/namu-actions";
-
-type SupportedInitial = "ㄱ" | "ㄴ" | "ㄷ" | "ㄹ" | "ㅁ";
+import type { SupportedInitial } from "@/lib/namu-av-actors";
 
 export function NamuSyncButton({ initial }: { initial: SupportedInitial }) {
   const [state, formAction, isPending] = useActionState(syncNamuInitialPageAction, null);

@@ -31,7 +31,7 @@ import {
   getSecondaryKeywordsForPrimaryKeywords,
   parseSecondaryStatuses,
 } from "@/lib/secondary-keyword-service";
-import { getPublishRules } from "@/lib/publish-service";
+import { getPublishRulesForDisplay } from "@/lib/publish-service";
 import { getSources } from "@/lib/source-repository";
 
 type KeywordsPageProps = {
@@ -109,7 +109,7 @@ export async function KeywordsInventoryPage({ searchParams }: KeywordsPageProps)
     keywords.map((keyword) => keyword.id),
   );
   const secondaryRules = getSecondaryKeywordRules();
-  const publishRules = getPublishRules();
+  const publishRules = await getPublishRulesForDisplay();
   const secondaryInventory = await getSecondaryKeywordInventory({
     parentKeywordIds: keywords.map((keyword) => keyword.id),
     limit: 240,
@@ -346,7 +346,7 @@ export async function KeywordsInventoryPage({ searchParams }: KeywordsPageProps)
                   ? "Current first-pass keyword candidates from ingested titles."
                   : selectedView === "secondary"
                     ? "Google Trends expansions generated from the visible primary set."
-                    : "Pages generated from secondary keywords + DCBest materials."}
+                    : "Pages generated from primary keywords with secondary clusters + DCBest materials."}
               </div>
               {selectedView === "secondary" ? (
                 <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
@@ -380,15 +380,15 @@ export async function KeywordsInventoryPage({ searchParams }: KeywordsPageProps)
                   Generate Secondary for Visible
                 </button>
               </form>
-              {selectedView === "secondary" ? (
+              {selectedView === "primary" ? (
                 <form action={generateKeywordPageBulkAction}>
-                  {secondaryInventory.map((keyword) => (
+                  {keywords.map((keyword) => (
                     <input key={keyword.id} type="hidden" name="keywordIds" value={String(keyword.id)} />
                   ))}
                   <button
                     className="rounded-full border border-black/10 bg-sky-950 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-900 disabled:cursor-not-allowed disabled:bg-sky-200"
                     type="submit"
-                    disabled={secondaryInventory.length === 0}
+                    disabled={keywords.length === 0}
                   >
                     Generate Pages for Visible
                   </button>
@@ -469,6 +469,15 @@ export async function KeywordsInventoryPage({ searchParams }: KeywordsPageProps)
                               type="submit"
                             >
                               Generate Secondary
+                            </button>
+                          </form>
+                          <form action={generateKeywordPageAction}>
+                            <input type="hidden" name="keywordId" value={String(keyword.id)} />
+                            <button
+                              className="rounded-full border border-black/10 bg-sky-950 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-sky-900"
+                              type="submit"
+                            >
+                              Generate Page
                             </button>
                           </form>
                         </div>
@@ -604,19 +613,6 @@ export async function KeywordsInventoryPage({ searchParams }: KeywordsPageProps)
                                 {sourceNameById.get(sourceId) ?? sourceId}
                               </SourcePill>
                             ))}
-                          </div>
-                        </div>
-                        <div className="mt-4">
-                          <div className="flex flex-wrap gap-2">
-                            <form action={generateKeywordPageAction}>
-                              <input type="hidden" name="keywordId" value={String(entry.id)} />
-                              <button
-                                className="rounded-full border border-black/10 bg-sky-950 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-sky-900"
-                                type="submit"
-                              >
-                                Generate Page
-                              </button>
-                            </form>
                           </div>
                         </div>
                       </div>

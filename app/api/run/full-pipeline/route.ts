@@ -21,20 +21,17 @@ export async function POST(request: Request) {
             | "primary"
             | "secondary"
             | "analysis"
-            | "hubs"
             | "pages"
             | "publish";
           skipIngest?: boolean;
           primarySelection?: "auto" | "manual";
           secondaryForceRefresh?: boolean;
           skipAnalysis?: boolean;
-          skipHubs?: boolean;
           startFrom?:
             | "ingest"
             | "primary"
             | "secondary"
             | "analysis"
-            | "hubs"
             | "pages"
             | "publish";
         }
@@ -51,7 +48,6 @@ export async function POST(request: Request) {
       primarySelection: body?.primarySelection,
       secondaryForceRefresh: body?.secondaryForceRefresh,
       skipAnalysis: body?.skipAnalysis,
-      skipHubs: body?.skipHubs,
       startFrom: body?.startFrom,
     };
 

@@ -5,9 +5,10 @@ import { normalizeKeyword } from "@/lib/normalize";
 import { prisma } from "@/lib/prisma";
 
 const NAMU_AV_INFO_URL = "https://namu.wiki/w/AV%20%EB%B0%B0%EC%9A%B0%20%EC%A0%95%EB%B3%B4";
-const ACTIVE_INITIALS = ["ㄱ", "ㄴ", "ㄷ", "ㄹ", "ㅁ"] as const;
+const ACTIVE_INITIALS = ["ㄱ", "ㄴ", "ㄷ", "ㄹ", "ㅁ", "ㅂ", "ㅅ", "ㅇ", "ㅈ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ"] as const;
+export const NAMU_AV_ACTIVE_INITIALS = ACTIVE_INITIALS;
 
-type SupportedInitial = (typeof ACTIVE_INITIALS)[number];
+export type SupportedInitial = (typeof ACTIVE_INITIALS)[number];
 
 const JAMO_SLUG_MAP: Record<string, string> = {
   ㄱ: "g", ㄴ: "n", ㄷ: "d", ㄹ: "r", ㅁ: "m",
@@ -45,14 +46,17 @@ function buildBodyParagraphs(initial: SupportedInitial, names: string[]) {
   ];
 }
 
+function startOfToday() {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
 async function fetchNamuAvInfoHtml() {
   const response = await fetch(NAMU_AV_INFO_URL, {
     headers: {
-      "user-agent":
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-      accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "accept-language": "ko-KR,ko;q=0.9,en-US;q=0.8",
-      referer: "https://namu.wiki/",
+      "user-agent": "Mozilla/5.0",
+      "accept-language": "ko-KR,ko;q=0.9",
     },
     cache: "no-store",
     signal: AbortSignal.timeout(15000),
@@ -73,40 +77,64 @@ function parseNamuActorGroups(html: string) {
     groups.set(initial, []);
   }
 
-  let currentInitial: SupportedInitial | null = null;
+  const anchors = $("a").toArray();
+  const sections = ACTIVE_INITIALS.map((initial) => {
+    const heading = $("span[id]").filter((_, element) => {
+      const id = ($(element).attr("id") ?? "").trim();
+      return id === `여배우 (${initial})`;
+    }).first();
+    const sectionId = heading.prev("a").attr("id");
+    const anchorIndex = sectionId
+      ? anchors.findIndex((element) => $(element).attr("id") === sectionId)
+      : -1;
+    return {
+      initial,
+      sectionId,
+      anchorIndex,
+    };
+  })
+    .filter(
+      (entry): entry is { initial: SupportedInitial; sectionId: string; anchorIndex: number } =>
+        Boolean(entry.sectionId) && entry.anchorIndex >= 0,
+    )
+    .sort((left, right) => left.anchorIndex - right.anchorIndex);
 
-  $("body *").each((_, element) => {
-    const tagName = element.tagName?.toLowerCase();
+  for (let sectionIndex = 0; sectionIndex < sections.length; sectionIndex += 1) {
+    const initial = sections[sectionIndex].initial;
+    const startAnchorIndex = sections[sectionIndex].anchorIndex;
+    const nextAnchorIndex = sections[sectionIndex + 1]?.anchorIndex;
+    const endAnchorIndex =
+      typeof nextAnchorIndex === "number"
+        ? nextAnchorIndex
+      : anchors.length;
+    const sectionAnchors = anchors.slice(
+      startAnchorIndex + 1,
+      endAnchorIndex,
+    );
+    const target = groups.get(initial);
 
-    if (tagName === "h3") {
+    if (!target) {
+      continue;
+    }
+
+    for (const element of sectionAnchors) {
+      const href = $(element).attr("href") ?? "";
       const text = $(element).text().replace(/\s+/g, " ").trim();
-      const match = text.match(/^3\.\d+\. 여배우 \(([ㄱㄴㄷㄹㅁ])\)\[편집\]$/);
-      currentInitial = (match?.[1] as SupportedInitial | undefined) ?? null;
-      return;
+
+      if (!href.startsWith("/w/") || !text || text.includes("편집") || text.length > 40) {
+        continue;
+      }
+
+      if (target.some((item) => item.text === text)) {
+        continue;
+      }
+
+      target.push({
+        text,
+        href: new URL(href, NAMU_AV_INFO_URL).toString(),
+      });
     }
-
-    if (!currentInitial || tagName !== "a") {
-      return;
-    }
-
-    const href = $(element).attr("href") ?? "";
-    const text = $(element).text().replace(/\s+/g, " ").trim();
-
-    if (!href.startsWith("/w/") || !text || text.includes("편집") || text.length > 40) {
-      return;
-    }
-
-    const target = groups.get(currentInitial);
-
-    if (!target || target.some((item) => item.text === text)) {
-      return;
-    }
-
-    target.push({
-      text,
-      href: new URL(href, NAMU_AV_INFO_URL).toString(),
-    });
-  });
+  }
 
   return groups;
 }
@@ -117,42 +145,142 @@ export async function getNamuAvActorInitialPreview(initial: SupportedInitial) {
   return groups.get(initial) ?? [];
 }
 
-export async function syncNamuAvActorInitialPage(initial: SupportedInitial) {
-  const html = await fetchNamuAvInfoHtml();
+export async function syncNamuAvActorInitialPage(initial: SupportedInitial, htmlOverride?: string) {
+  const html = htmlOverride ?? (await fetchNamuAvInfoHtml());
   const groups = parseNamuActorGroups(html);
   const actors = groups.get(initial) ?? [];
-  const keywordText = `AV 배우 정보 ${initial}`;
+  const keywordText = `AV 배우 이름 초성 모음 ${initial}`;
+  const legacyKeywordText = `AV 배우 정보 ${initial}`;
   const normalizedText = normalizeKeyword(keywordText);
-  const slug = slugifyKeyword(`av-배우-정보-${initial}`);
+  const legacyNormalizedText = normalizeKeyword(legacyKeywordText);
+  const slug = slugifyKeyword(`av-배우-이름-초성-모음-${initial}`);
   const actorNames = actors.map((actor) => actor.text);
   const bodyParagraphs = buildBodyParagraphs(initial, actorNames);
   const canonicalPath = `/keywords/${slug}`;
-
-  const keyword = await prisma.keyword.upsert({
+  const metricDate = startOfToday();
+  const existingKeywords = await prisma.keyword.findMany({
     where: {
-      normalizedText,
+      normalizedText: {
+        in: [normalizedText, legacyNormalizedText],
+      },
+    },
+    orderBy: {
+      id: "asc",
+    },
+  });
+  const existingKeyword =
+    existingKeywords.find((entry) => entry.normalizedText === normalizedText) ??
+    existingKeywords.find((entry) => entry.normalizedText === legacyNormalizedText) ??
+    null;
+  const keywordData = {
+    text: keywordText,
+    normalizedText,
+    level: KeywordLevel.primary,
+    region: "JP",
+    language: "ko",
+    isManual: true,
+    sourceLabel: "namu_wiki",
+    sourceIdsRaw: "manual:namu",
+    status: KeywordStatus.tracking,
+    lastSeenAt: new Date(),
+  };
+
+  const keyword = existingKeyword
+    ? await prisma.keyword.update({
+        where: {
+          id: existingKeyword.id,
+        },
+        data: keywordData,
+      })
+    : await prisma.keyword.create({
+        data: keywordData,
+      });
+
+  await prisma.keywordMetric.upsert({
+    where: {
+      keywordId_metricDate: {
+        keywordId: keyword.id,
+        metricDate,
+      },
     },
     update: {
-      text: keywordText,
-      level: KeywordLevel.secondary,
-      region: "JP",
-      language: "ko",
-      isManual: true,
-      sourceLabel: "namu_wiki",
-      sourceIdsRaw: "manual:namu",
-      status: KeywordStatus.tracking,
-      lastSeenAt: new Date(),
+      frequencyScore: Math.max(actorNames.length, 1),
+      sourceCount: 1,
+      trendScore: 1,
+      opportunityScore: 18,
     },
     create: {
-      text: keywordText,
-      normalizedText,
-      level: KeywordLevel.secondary,
-      region: "JP",
-      language: "ko",
-      isManual: true,
-      sourceLabel: "namu_wiki",
-      sourceIdsRaw: "manual:namu",
-      status: KeywordStatus.tracking,
+      keywordId: keyword.id,
+      metricDate,
+      frequencyScore: Math.max(actorNames.length, 1),
+      sourceCount: 1,
+      trendScore: 1,
+      opportunityScore: 18,
+    },
+  });
+
+  for (const actorName of actorNames) {
+    const actorKeyword = await prisma.keyword.upsert({
+      where: {
+        normalizedText: normalizeKeyword(actorName),
+      },
+      update: {
+        text: actorName,
+        level: KeywordLevel.secondary,
+        parentKeywordId: keyword.id,
+        region: "JP",
+        language: "ko",
+        isManual: true,
+        sourceLabel: "namu_wiki_actor",
+        sourceIdsRaw: "manual:namu",
+        status: KeywordStatus.tracking,
+        lastSeenAt: new Date(),
+      },
+      create: {
+        text: actorName,
+        normalizedText: normalizeKeyword(actorName),
+        level: KeywordLevel.secondary,
+        parentKeywordId: keyword.id,
+        region: "JP",
+        language: "ko",
+        isManual: true,
+        sourceLabel: "namu_wiki_actor",
+        sourceIdsRaw: "manual:namu",
+        status: KeywordStatus.tracking,
+      },
+    });
+
+    await prisma.keywordMetric.upsert({
+      where: {
+        keywordId_metricDate: {
+          keywordId: actorKeyword.id,
+          metricDate,
+        },
+      },
+      update: {
+        frequencyScore: 1,
+        sourceCount: 1,
+        trendScore: 1,
+        opportunityScore: 6,
+      },
+      create: {
+        keywordId: actorKeyword.id,
+        metricDate,
+        frequencyScore: 1,
+        sourceCount: 1,
+        trendScore: 1,
+        opportunityScore: 6,
+      },
+    });
+  }
+
+  await prisma.keyword.deleteMany({
+    where: {
+      parentKeywordId: keyword.id,
+      sourceLabel: "namu_wiki_actor",
+      text: {
+        notIn: actorNames.length > 0 ? actorNames : [""],
+      },
     },
   });
 
@@ -162,10 +290,10 @@ export async function syncNamuAvActorInitialPage(initial: SupportedInitial) {
     },
     update: {
       slug,
-      title: `AV 배우 정보 ${initial} 초성 목록`,
-      h1: `AV 배우 정보 ${initial}`,
-      description: `나무위키 AV 배우 정보 문서에서 ${initial} 초성 구간에 포함된 배우 이름을 모아 정리한 페이지입니다.`,
-      summary: `나무위키 AV 배우 정보 문서의 ${initial} 초성 링크 목록을 기준으로 최신 이름 묶음을 정리했습니다.`,
+      title: keywordText,
+      h1: keywordText,
+      description: `나무위키 AV 배우 정보 문서에서 ${initial} 초성 구간에 포함된 실제 배우 이름을 모아 정리한 페이지입니다.`,
+      summary: `나무위키 AV 배우 정보 문서의 ${initial} 초성 링크 목록을 기준으로 실제 배우 이름 묶음과 대표 항목 흐름을 한 페이지에 정리했습니다.`,
       faqRaw: JSON.stringify(bodyParagraphs),
       relatedKeywordsRaw: JSON.stringify(actorNames.slice(0, 80)),
       canonicalPath,
@@ -175,10 +303,10 @@ export async function syncNamuAvActorInitialPage(initial: SupportedInitial) {
     create: {
       keywordId: keyword.id,
       slug,
-      title: `AV 배우 정보 ${initial} 초성 목록`,
-      h1: `AV 배우 정보 ${initial}`,
-      description: `나무위키 AV 배우 정보 문서에서 ${initial} 초성 구간에 포함된 배우 이름을 모아 정리한 페이지입니다.`,
-      summary: `나무위키 AV 배우 정보 문서의 ${initial} 초성 링크 목록을 기준으로 최신 이름 묶음을 정리했습니다.`,
+      title: keywordText,
+      h1: keywordText,
+      description: `나무위키 AV 배우 정보 문서에서 ${initial} 초성 구간에 포함된 실제 배우 이름을 모아 정리한 페이지입니다.`,
+      summary: `나무위키 AV 배우 정보 문서의 ${initial} 초성 링크 목록을 기준으로 실제 배우 이름 묶음과 대표 항목 흐름을 한 페이지에 정리했습니다.`,
       faqRaw: JSON.stringify(bodyParagraphs),
       relatedKeywordsRaw: JSON.stringify(actorNames.slice(0, 80)),
       canonicalPath,
@@ -192,5 +320,125 @@ export async function syncNamuAvActorInitialPage(initial: SupportedInitial) {
     actorCount: actors.length,
     sample: actorNames.slice(0, 12),
     canonicalPath,
+  };
+}
+
+export async function syncAllNamuAvActorInitialPages(htmlOverride?: string) {
+  const synced = [];
+  const html = htmlOverride ?? (await fetchNamuAvInfoHtml());
+
+  for (const initial of ACTIVE_INITIALS) {
+    synced.push(await syncNamuAvActorInitialPage(initial, html));
+  }
+
+  const activeLegacyTexts = new Set(ACTIVE_INITIALS.map((initial) => `AV 배우 정보 ${initial}`));
+  const activeCurrentTexts = new Set(ACTIVE_INITIALS.map((initial) => `AV 배우 이름 초성 모음 ${initial}`));
+  const currentKeywords = await prisma.keyword.findMany({
+    where: {
+      text: {
+        in: [...activeCurrentTexts],
+      },
+    },
+    select: {
+      id: true,
+      text: true,
+    },
+  });
+  const currentKeywordIdByText = new Map(currentKeywords.map((keyword) => [keyword.text, keyword.id]));
+  const legacyKeywords = await prisma.keyword.findMany({
+    where: {
+      text: {
+        in: [...activeLegacyTexts],
+      },
+    },
+    include: {
+      generatedPages: {
+        select: {
+          id: true,
+        },
+      },
+      childKeywords: {
+        select: {
+          id: true,
+        },
+      },
+    },
+    orderBy: {
+      id: "asc",
+    },
+  });
+
+  let deletedKeywordCount = 0;
+  let deletedPageCount = 0;
+  let reassignedChildCount = 0;
+
+  for (const legacyKeyword of legacyKeywords) {
+    const initial = legacyKeyword.text.slice(-1) as SupportedInitial;
+    const targetText = `AV 배우 이름 초성 모음 ${initial}`;
+    const targetKeywordId = currentKeywordIdByText.get(targetText);
+
+    if (targetKeywordId && targetKeywordId !== legacyKeyword.id) {
+      if (legacyKeyword.childKeywords.length > 0) {
+        await prisma.keyword.updateMany({
+          where: {
+            parentKeywordId: legacyKeyword.id,
+          },
+          data: {
+            parentKeywordId: targetKeywordId,
+          },
+        });
+        reassignedChildCount += legacyKeyword.childKeywords.length;
+      }
+
+      if (legacyKeyword.generatedPages.length > 0) {
+        await prisma.generatedPage.deleteMany({
+          where: {
+            keywordId: legacyKeyword.id,
+          },
+        });
+        deletedPageCount += legacyKeyword.generatedPages.length;
+      }
+
+      await prisma.keyword.delete({
+        where: {
+          id: legacyKeyword.id,
+        },
+      });
+      deletedKeywordCount += 1;
+      continue;
+    }
+
+    if (!targetKeywordId) {
+      if (legacyKeyword.generatedPages.length > 0) {
+        await prisma.generatedPage.deleteMany({
+          where: {
+            keywordId: legacyKeyword.id,
+          },
+        });
+        deletedPageCount += legacyKeyword.generatedPages.length;
+      }
+
+      if (legacyKeyword.childKeywords.length > 0) {
+        await prisma.keyword.deleteMany({
+          where: {
+            parentKeywordId: legacyKeyword.id,
+          },
+        });
+      }
+
+      await prisma.keyword.delete({
+        where: {
+          id: legacyKeyword.id,
+        },
+      });
+      deletedKeywordCount += 1;
+    }
+  }
+
+  return {
+    synced,
+    deletedKeywordCount,
+    deletedPageCount,
+    reassignedChildCount,
   };
 }

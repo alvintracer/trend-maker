@@ -1,11 +1,17 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { cache } from "react";
 
 import { GlobalAdScripts } from "@/components/ads/global-ad-scripts";
 import { PublicAdSlot } from "@/components/ads/public-ad-slot";
 import { getAdSlotSettingsMap } from "@/lib/ad-settings";
-import { getGeneratedPageBySlug, parseGeneratedPageArray } from "@/lib/generated-page-service";
+import {
+  getGeneratedPageByRouteSlug,
+  parseGeneratedPageArray,
+} from "@/lib/generated-page-service";
 import { getSiteUrl } from "@/lib/site-url";
+
+const getCachedGeneratedPageBySlug = cache(async (slug: string) => getGeneratedPageByRouteSlug(slug));
 
 type KeywordDetailPageProps = {
   params: Promise<{
@@ -17,7 +23,7 @@ export async function generateMetadata({
   params,
 }: KeywordDetailPageProps): Promise<Metadata> {
   const { slug } = await params;
-  const page = await getGeneratedPageBySlug(slug);
+  const page = await getCachedGeneratedPageBySlug(slug);
 
   if (!page) {
     return {};
@@ -47,7 +53,10 @@ export async function generateMetadata({
 
 export default async function KeywordDetailPage({ params }: KeywordDetailPageProps) {
   const { slug } = await params;
-  const [page, adSettings] = await Promise.all([getGeneratedPageBySlug(slug), getAdSlotSettingsMap()]);
+  const [page, adSettings] = await Promise.all([
+    getCachedGeneratedPageBySlug(slug),
+    getAdSlotSettingsMap(),
+  ]);
 
   if (!page) {
     notFound();
@@ -56,7 +65,10 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
   const latestAnalysis = page.keyword.analyses[0];
   const bodyParagraphs = parseGeneratedPageArray(page.faqRaw);
   const relatedKeywords = parseGeneratedPageArray(page.relatedKeywordsRaw);
-  const tertiaryKeywords = page.keyword.childKeywords;
+  const childKeywords =
+    page.keyword.level === "primary"
+      ? page.keyword.childKeywords.filter((keyword) => keyword.level === "secondary")
+      : page.keyword.childKeywords.filter((keyword) => keyword.level === "tertiary");
   const metric = page.keyword.metrics[0];
   const isPublished = page.status === "published";
 
@@ -88,7 +100,7 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
 
         <section className="rounded-[28px] border border-black/10 bg-white/90 p-8 shadow-[0_24px_80px_rgba(63,63,38,0.12)]">
           <div className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-900">
-            CommunityWikiKorea Hub
+            CommunityWikiKorea Page
           </div>
           <h1 className="mt-3 text-4xl font-semibold tracking-tight">{page.h1}</h1>
           <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">{page.summary}</p>
@@ -99,7 +111,7 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
           </div>
           {!isPublished ? (
             <div className="mt-5 rounded-2xl border border-amber-900/10 bg-amber-50/70 px-4 py-3 text-sm text-amber-900">
-              This hub is still under review. It is visible directly by URL but remains excluded
+              This page is still under review. It is visible directly by URL but remains excluded
               from search indexing.
             </div>
           ) : null}
@@ -170,9 +182,9 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
 
           <div className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)]">
             <h2 className="text-xl font-semibold tracking-tight">Related Searches</h2>
-            <div className="mt-4 grid gap-3">
-              {tertiaryKeywords.length > 0 ? (
-                tertiaryKeywords.map((keyword) => (
+              <div className="mt-4 grid gap-3">
+              {childKeywords.length > 0 ? (
+                childKeywords.map((keyword) => (
                   <div
                     key={keyword.id}
                     className="rounded-2xl border border-black/8 bg-stone-50/80 px-4 py-3"
@@ -184,7 +196,7 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
                   </div>
                 ))
               ) : (
-                <div className="text-sm text-slate-500">No tertiary keywords</div>
+                <div className="text-sm text-slate-500">No related child keywords</div>
               )}
             </div>
           </div>
@@ -232,7 +244,7 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
                 <QuickFact label="상태" value={page.status} />
                 <QuickFact label="레벨" value={page.keyword.level} />
                 <QuickFact label="연관어" value={String(relatedKeywords.length)} />
-                <QuickFact label="확장 키워드" value={String(tertiaryKeywords.length)} />
+                <QuickFact label="확장 키워드" value={String(childKeywords.length)} />
               </div>
             </div>
           </div>

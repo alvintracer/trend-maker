@@ -34,7 +34,6 @@ const defaultStepSpecs = [
   { id: "primary", label: "Primary Keywords" },
   { id: "secondary", label: "Secondary Keywords" },
   { id: "analysis", label: "Keyword Analysis" },
-  { id: "hubs", label: "Hub Clustering" },
   { id: "pages", label: "Page Generation" },
   { id: "publish", label: "Publish Eligible Items" },
 ] as const;

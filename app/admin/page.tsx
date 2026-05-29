@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { updateAdSlotEnabledAction } from "@/app/admin/ad-actions";
 import { logoutAdminAction } from "@/app/admin/auth-actions";
+import { updatePublishThresholdAction } from "@/app/admin/publish-actions";
 import {
   bulkImportManualPrimaryKeywordsAction,
   bulkImportManualSecondaryKeywordsAction,
@@ -11,6 +12,7 @@ import {
   updateKeywordPinnedAction,
 } from "@/app/keywords/actions";
 import { DcbestIngestPanel } from "@/components/admin/dcbest-ingest-panel";
+import { NamuSyncAllButton } from "@/components/admin/namu-sync-all-button";
 import { NamuSyncButton } from "@/components/admin/namu-sync-button";
 import { PipelinePanel } from "@/components/admin/pipeline-panel";
 import { getAdSlotSettingsMap } from "@/lib/ad-settings";
@@ -21,7 +23,9 @@ import {
   getManualPrimaryKeywords,
   getRecentSecondaryKeywords,
 } from "@/lib/keyword-repository";
+import { NAMU_AV_ACTIVE_INITIALS } from "@/lib/namu-av-actors";
 import { getLatestPipelineRun } from "@/lib/pipeline-run";
+import { getPublishRulesForDisplay } from "@/lib/publish-service";
 import { prisma } from "@/lib/prisma";
 
 export const metadata: Metadata = {
@@ -41,6 +45,7 @@ export default async function AdminPage() {
     recentSecondaryKeywords,
     adSettings,
     latestPipelineRun,
+    publishRules,
     dcbestSource,
     dcbestDocumentCount,
     generatedPages,
@@ -50,6 +55,7 @@ export default async function AdminPage() {
     getRecentSecondaryKeywords(16),
     getAdSlotSettingsMap(),
     getLatestPipelineRun(),
+    getPublishRulesForDisplay(),
     prisma.source.findUnique({
       where: {
         externalId: "dcinside-dcbest",
@@ -324,19 +330,22 @@ export default async function AdminPage() {
             <div>
               <h2 className="text-xl font-semibold tracking-tight">Namu Wiki Initial Pages</h2>
               <p className="mt-1 text-sm text-slate-600">
-                `AV 배우 정보` 문서에서 여배우 초성 묶음을 가져와 초성별 공개 페이지를 만듭니다.
+                `AV 배우 정보` 문서에서 실제 배우 이름을 읽어 `AV 배우 이름 초성 모음` 페이지로 정리합니다.
               </p>
             </div>
-            <Link
-              href="/admin/keywords?view=generated"
-              className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-medium text-slate-800 transition-colors hover:bg-stone-50"
-            >
-              Generated Pages
-            </Link>
+            <div className="flex flex-wrap items-start gap-3">
+              <NamuSyncAllButton />
+              <Link
+                href="/admin/keywords?view=generated"
+                className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-medium text-slate-800 transition-colors hover:bg-stone-50"
+              >
+                Generated Pages
+              </Link>
+            </div>
           </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            {(["ㄱ", "ㄴ", "ㄷ", "ㄹ", "ㅁ"] as const).map((initial) => (
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+            {NAMU_AV_ACTIVE_INITIALS.map((initial) => (
               <NamuSyncButton key={initial} initial={initial} />
             ))}
           </div>
@@ -413,6 +422,45 @@ export default async function AdminPage() {
                   </div>
                 </Link>
               ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight">Publish Rules</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                publish 실행 시 사용할 opportunity 기준 점수입니다.
+              </p>
+            </div>
+          </div>
+          <div className="mt-5 rounded-2xl border border-black/8 bg-stone-50/80 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-base font-semibold text-slate-950">
+                  Minimum Publish Opportunity
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  현재 publish 기준: opportunity {publishRules.minRepresentativeOpportunity}+
+                </div>
+              </div>
+              <form action={updatePublishThresholdAction} className="flex flex-wrap items-center gap-3">
+                <input
+                  type="number"
+                  name="minRepresentativeOpportunity"
+                  min="0"
+                  step="0.1"
+                  defaultValue={publishRules.minRepresentativeOpportunity}
+                  className="w-28 rounded-full border border-black/10 bg-white px-4 py-2 text-sm text-slate-900"
+                />
+                <button
+                  className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800"
+                  type="submit"
+                >
+                  Save Threshold
+                </button>
+              </form>
             </div>
           </div>
         </section>

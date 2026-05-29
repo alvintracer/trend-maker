@@ -25,6 +25,9 @@ export default async function Home() {
 
   const liveKeywords = pinnedKeywords.length > 0 ? pinnedKeywords : topKeywords.slice(0, 10);
   const featuredPages = publishedPages.slice(0, 6);
+  const publishedPageByKeywordId = new Map(
+    publishedPages.map((page) => [page.keywordId, page]),
+  );
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,#f0f7e8_0%,#f5f1e8_42%,#f7f6f2_100%)] text-slate-950">
@@ -148,7 +151,7 @@ export default async function Home() {
                 </div>
                 {liveKeywords.map((keyword, index) => {
                   const metric = keyword.metrics[0];
-                  const relatedPage = featuredPages[index] ?? null;
+                  const relatedPage = publishedPageByKeywordId.get(keyword.id) ?? null;
 
                   return (
                     <article

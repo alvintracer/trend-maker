@@ -253,6 +253,16 @@ model AdSlotSetting {
   @@schema("trend_maker")
 }
 
+model PublishSetting {
+  id                           Int      @id @default(autoincrement())
+  scope                        String   @unique @default("default")
+  minRepresentativeOpportunity Float    @default(14)
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+
+  @@schema("trend_maker")
+}
+
 model PipelineRun {
   id          Int               @id @default(autoincrement())
   status      PipelineRunStatus @default(queued)
