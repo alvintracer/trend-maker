@@ -1,4 +1,5 @@
 import { AdScriptSlot } from "@/components/ads/ad-script-slot";
+import { ResponsiveAdWrapper } from "@/components/ads/responsive-ad-wrapper";
 import { getAdSlotDefinition, type AdSlotKey } from "@/lib/adsterra";
 
 export function PublicAdSlot({
@@ -25,36 +26,25 @@ export function PublicAdSlot({
     height = slot.unit.height;
   }
 
+  const baseSurfaceClass = surfaceClassName ?? "overflow-hidden rounded-[24px] border border-black/10 bg-white/88 p-3 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur";
+  const finalSurfaceClass = `${baseSurfaceClass} w-full max-w-full overflow-hidden`;
+
   return (
-    <div className={className}>
-      <div
-        className={
-          surfaceClassName ??
-          "overflow-hidden rounded-[24px] border border-black/10 bg-white/88 p-3 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur"
-        }
-      >
-        <div className="mb-3 text-center text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">
-          sponsored
-        </div>
-        <AdScriptSlot
-          slotKey={slotKey}
-          className="mx-auto flex min-h-[60px] items-center justify-center overflow-hidden"
-        />
+    <div className={`${className ?? ""} w-full max-w-full min-w-0`}>
+      <div className={finalSurfaceClass}>
         {width && height ? (
-          <>
-            <div
-              className="mx-auto"
-              style={{
-                width: Math.min(width, 728),
-                maxWidth: "100%",
-                minHeight: height,
-              }}
+          <ResponsiveAdWrapper width={width} height={height}>
+            <AdScriptSlot
+              slotKey={slotKey}
+              className="mx-auto flex items-center justify-center overflow-hidden"
             />
-            <div className="mt-2 text-center text-[10px] text-slate-400">
-              {width}x{height}
-            </div>
-          </>
-        ) : null}
+          </ResponsiveAdWrapper>
+        ) : (
+          <AdScriptSlot
+            slotKey={slotKey}
+            className="mx-auto flex min-h-[60px] items-center justify-center overflow-hidden"
+          />
+        )}
       </div>
     </div>
   );

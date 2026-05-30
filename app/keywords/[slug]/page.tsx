@@ -152,7 +152,7 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
   };
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#eef6ff_0%,#f8f5ec_48%,#f7f7f4_100%)] text-slate-950">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#e0eafd_0%,#f1f5f9_45%,#f8fafc_100%)] text-slate-950">
       <script
         type="application/ld+json"
         suppressHydrationWarning
@@ -166,11 +166,18 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
       />
       <div className="mx-auto grid w-full max-w-[1500px] gap-6 px-4 py-8 xl:grid-cols-[190px_minmax(0,1fr)_320px] xl:px-6">
         <aside className="hidden xl:block">
-          <PublicAdSlot
-            slotKey="detail_left_rail"
-            enabled={adSettings.detail_left_rail}
-            surfaceClassName="overflow-hidden rounded-[28px] border border-black/10 bg-white/85 p-4 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur xl:sticky xl:top-6"
-          />
+          <div className="sticky top-6 flex flex-col gap-6">
+            <PublicAdSlot
+              slotKey="detail_left_rail"
+              enabled={adSettings.detail_left_rail}
+              surfaceClassName="overflow-hidden rounded-[28px] border border-black/10 bg-white/85 p-4 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur"
+            />
+            <PublicAdSlot
+              slotKey="detail_left_rail"
+              enabled={adSettings.detail_left_rail}
+              surfaceClassName="overflow-hidden rounded-[28px] border border-black/10 bg-white/85 p-4 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur"
+            />
+          </div>
         </aside>
 
         <div className="flex min-w-0 flex-col gap-6">
@@ -202,11 +209,11 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
           </section>
 
           <section className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-            <div className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)]">
+            <div className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(30,41,59,0.06)]">
               <h2 className="text-xl font-semibold tracking-tight">{page.h1} 개요</h2>
-            <div className="mt-5 rounded-2xl border border-black/8 bg-stone-50/80 p-4">
+            <div className="mt-5 rounded-2xl border border-black/8 bg-slate-50/80 p-4">
               <div className="text-lg font-semibold text-sky-800">{page.title}</div>
-              <div className="mt-2 text-sm text-emerald-800">{page.canonicalPath}</div>
+              <div className="mt-2 text-sm text-sky-700">{page.canonicalPath}</div>
               <p className="mt-3 text-sm leading-6 text-slate-700">{page.description}</p>
             </div>
 
@@ -241,7 +248,7 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
                 bodyParagraphs.map((paragraph, index) => (
                   <div
                     key={`${paragraph}-${index}`}
-                    className="rounded-2xl border border-black/8 bg-stone-50/80 px-5 py-4 text-sm leading-7 text-slate-800"
+                    className="rounded-2xl border border-black/8 bg-slate-50/80 px-5 py-4 text-sm leading-7 text-slate-800"
                   >
                     {paragraph}
                   </div>
@@ -273,7 +280,7 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
                     <Link
                       key={keyword.id}
                       href={keyword.generatedPages[0].canonicalPath}
-                      className="rounded-2xl border border-black/8 bg-stone-50/80 px-4 py-3 transition-colors hover:bg-white"
+                      className="rounded-2xl border border-black/8 bg-slate-50/80 px-4 py-3 transition-colors hover:bg-white"
                     >
                       <div className="text-sm font-semibold text-slate-900">{keyword.text}</div>
                       <div className="mt-1 text-xs text-slate-500">
@@ -283,7 +290,7 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
                   ) : (
                     <div
                       key={keyword.id}
-                      className="rounded-2xl border border-black/8 bg-stone-50/80 px-4 py-3"
+                      className="rounded-2xl border border-black/8 bg-slate-50/80 px-4 py-3"
                     >
                       <div className="text-sm font-semibold text-slate-900">{keyword.text}</div>
                       <div className="mt-1 text-xs text-slate-500">
@@ -306,7 +313,7 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
                 bodyParagraphs.slice(0, 4).map((question) => (
                   <div
                     key={question}
-                    className="rounded-2xl border border-black/8 bg-stone-50/80 px-4 py-3 text-sm font-medium text-slate-800"
+                    className="rounded-2xl border border-black/8 bg-slate-50/80 px-4 py-3 text-sm font-medium text-slate-800"
                   >
                     {question}
                   </div>
@@ -344,6 +351,11 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
                 <QuickFact label="확장 키워드" value={String(childKeywords.length)} />
               </div>
             </div>
+            <PublicAdSlot
+              slotKey="detail_right_rail"
+              enabled={adSettings.detail_right_rail}
+              surfaceClassName="overflow-hidden rounded-[28px] border border-black/10 bg-white/85 p-4 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur"
+            />
           </div>
         </aside>
       </div>
@@ -370,7 +382,7 @@ function StatCard({ label, value }: { label: string; value: string }) {
 
 function QuickFact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-black/8 bg-stone-50/80 px-4 py-3">
+    <div className="rounded-2xl border border-black/8 bg-slate-50/80 px-4 py-3">
       <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
         {label}
       </div>

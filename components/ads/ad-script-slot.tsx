@@ -40,17 +40,18 @@ function mountBanner(el: HTMLDivElement, slot: AdSlotDefinition) {
 }
 
 function mountNative(el: HTMLDivElement, slot: AdSlotDefinition) {
-  if (slot.unit.kind !== "native") {
+  const unit = slot.unit;
+  if (unit.kind !== "native") {
     return;
   }
 
   const invokeScript = document.createElement("script");
   invokeScript.async = true;
-  invokeScript.src = slot.unit.scriptSrc;
+  invokeScript.src = unit.scriptSrc;
   invokeScript.setAttribute("data-cfasync", "false");
 
   const container = document.createElement("div");
-  container.id = slot.unit.containerId;
+  container.id = unit.containerId;
 
   el.appendChild(invokeScript);
   el.appendChild(container);

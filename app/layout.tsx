@@ -101,16 +101,16 @@ export default function RootLayout({
   return (
     <html
       lang="ko"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full w-full max-w-[100vw] antialiased overflow-x-hidden`}
     >
-      <body className="min-h-full flex flex-col bg-stone-50 text-slate-950">
+      <body className="min-h-full w-full max-w-[100vw] flex flex-col bg-slate-50 text-slate-950 overflow-x-hidden">
         <script
           type="application/ld+json"
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
         />
         <div className="flex flex-1 flex-col">{children}</div>
-        <footer className="border-t border-black/10 bg-[#f6f1e5]">
+        <footer className="border-t border-slate-200 bg-slate-50">
           <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 px-4 py-6 lg:px-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">

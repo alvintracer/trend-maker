@@ -146,11 +146,11 @@ export default async function AdminPage() {
   ]);
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#e8f5e9_0%,#f5f1e8_45%,#f8f7f2_100%)] text-slate-950">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#e0eafd_0%,#f1f5f9_45%,#f8fafc_100%)] text-slate-950">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-6 py-10 lg:px-10">
         <section className="rounded-[28px] border border-black/10 bg-white/85 p-8 shadow-[0_24px_80px_rgba(63,63,38,0.12)] backdrop-blur">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <span className="rounded-full border border-emerald-900/15 bg-emerald-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-900">
+            <span className="rounded-full border border-sky-900/15 bg-sky-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-sky-900">
               Admin
             </span>
             <div className="flex flex-wrap items-center gap-2">
@@ -189,7 +189,7 @@ export default async function AdminPage() {
         </section>
 
         <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-900">
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-900">
             Main Page Management
           </div>
           <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
@@ -204,7 +204,7 @@ export default async function AdminPage() {
         <MainPageIngestPanel initialSources={mainPageSources} />
 
         <section className="rounded-[28px] border border-black/10 bg-white/85 p-6 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-900">
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-900">
             Detail Page Management
           </div>
           <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
@@ -600,7 +600,7 @@ export default async function AdminPage() {
                     </div>
                     <span
                       className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${
-                        enabled ? "bg-emerald-100 text-emerald-900" : "bg-slate-200 text-slate-700"
+                        enabled ? "bg-sky-100 text-sky-900" : "bg-slate-200 text-slate-700"
                       }`}
                     >
                       {enabled ? "enabled" : "disabled"}

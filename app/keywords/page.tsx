@@ -135,12 +135,12 @@ export async function KeywordsInventoryPage({ searchParams }: KeywordsPageProps)
   const visiblePinnedCount = keywords.filter((keyword) => keyword.pinned).length;
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#edf7ef_0%,#f6f0e6_46%,#f8f7f2_100%)] text-slate-950">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#e0eafd_0%,#f1f5f9_46%,#f8fafc_100%)] text-slate-950">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-6 py-10 lg:px-10">
         <section className="rounded-[28px] border border-black/10 bg-white/85 p-8 shadow-[0_24px_80px_rgba(63,63,38,0.12)] backdrop-blur">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-900">
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-900">
                 Admin Keyword Inventory
               </div>
               <h1 className="mt-3 text-4xl font-semibold tracking-tight sm:text-5xl">
@@ -565,8 +565,8 @@ export async function KeywordsInventoryPage({ searchParams }: KeywordsPageProps)
                           {entry.normalizedText}
                         </div>
                         {latestAnalysis ? (
-                          <div className="mt-3 rounded-2xl border border-emerald-900/10 bg-emerald-50/70 px-3 py-3">
-                            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-900">
+                          <div className="mt-3 rounded-2xl border border-sky-900/10 bg-sky-50/70 px-3 py-3">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-sky-900">
                               Latest Analysis
                             </div>
                             <div className="mt-2 text-sm font-medium text-slate-900">
@@ -705,7 +705,7 @@ export async function KeywordsInventoryPage({ searchParams }: KeywordsPageProps)
                               <form action={publishGeneratedPageAction}>
                                 <input type="hidden" name="pageId" value={String(page.id)} />
                                 <button
-                                  className="rounded-full border border-emerald-900/10 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-900 transition-colors hover:bg-emerald-100"
+                                  className="rounded-full border border-sky-900/10 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-900 transition-colors hover:bg-sky-100"
                                   type="submit"
                                 >
                                   Publish Page
@@ -877,7 +877,7 @@ function MetaPill({ children }: { children: React.ReactNode }) {
 
 function SourcePill({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded-full border border-emerald-900/12 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-900">
+    <span className="rounded-full border border-sky-900/12 bg-sky-50 px-2.5 py-1 text-[11px] font-medium text-sky-900">
       {children}
     </span>
   );
@@ -885,7 +885,7 @@ function SourcePill({ children }: { children: React.ReactNode }) {
 
 function StatusPill({ status }: { status: string }) {
   return (
-    <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.12em] text-emerald-900">
+    <span className="rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.12em] text-sky-900">
       {status}
     </span>
   );

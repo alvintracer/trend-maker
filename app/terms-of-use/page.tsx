@@ -7,7 +7,7 @@ export const metadata: Metadata = {
 
 export default function TermsOfUsePage() {
   return (
-    <main className="bg-[radial-gradient(circle_at_top,#f0f7e8_0%,#f5f1e8_42%,#f7f6f2_100%)] px-4 py-10 text-slate-950 lg:px-6">
+    <main className="bg-[radial-gradient(circle_at_top,#e0eafd_0%,#f1f5f9_42%,#f8fafc_100%)] px-4 py-10 text-slate-950 lg:px-6">
       <article className="mx-auto max-w-4xl rounded-[32px] border border-black/10 bg-white/90 p-8 shadow-[0_16px_60px_rgba(53,58,42,0.08)] backdrop-blur">
         <span className="rounded-full border border-black/10 bg-stone-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-700">
           Terms of Use

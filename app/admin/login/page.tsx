@@ -24,9 +24,9 @@ export default async function AdminLoginPage({ searchParams }: AdminLoginPagePro
   const configured = isAdminPasswordConfigured();
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#ecf3e7_0%,#f5f1e8_44%,#f7f6f2_100%)] px-6 py-16 text-slate-950">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#e0eafd_0%,#f1f5f9_44%,#f8fafc_100%)] px-6 py-16 text-slate-950">
       <div className="mx-auto max-w-xl rounded-[32px] border border-black/10 bg-white/90 p-8 shadow-[0_24px_80px_rgba(63,63,38,0.12)]">
-        <div className="rounded-full border border-emerald-900/15 bg-emerald-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-900">
+        <div className="rounded-full border border-sky-900/15 bg-sky-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-sky-900">
           Admin Access
         </div>
         <h1 className="mt-5 text-4xl font-semibold tracking-tight">CommunityWikiKorea admin</h1>
