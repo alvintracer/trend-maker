@@ -278,10 +278,26 @@ model MainPageSourceSetting {
   id             Int      @id @default(autoincrement())
   sourceExternalId String @unique
   enabled        Boolean  @default(true)
-  intervalHours  Int      @default(6)
+  intervalHours  Int      @default(24)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  @@schema("trend_maker")
+}
+
+model MainPageKeyword {
+  id               Int      @id @default(autoincrement())
+  keywordText      String
+  normalizedText   String   @unique
+  count            Int      @default(0)
+  sourceCount      Int      @default(0)
+  sourcesJson      String   @default("[]")
+  sampleTitlesJson String   @default("[]")
+  lastComputedAt   DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([sourceCount, count, lastComputedAt])
   @@schema("trend_maker")
 }
 

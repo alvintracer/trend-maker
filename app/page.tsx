@@ -1,3 +1,4 @@
+import { GeneratedPageStatus, KeywordLevel } from "@prisma/client";
 import type { Metadata } from "next";
 import Image from "next/image";
 import { Fragment } from "react";
@@ -5,7 +6,9 @@ import { Fragment } from "react";
 import { GlobalAdScripts } from "@/components/ads/global-ad-scripts";
 import { PublicAdSlot } from "@/components/ads/public-ad-slot";
 import { getAdSlotSettingsMap } from "@/lib/ad-settings";
+import { getMainPageKeywords } from "@/lib/main-page-keywords";
 import { MAIN_PAGE_SOURCE_IDS } from "@/lib/main-page-sources";
+import { prisma } from "@/lib/prisma";
 import { getLatestRawDocumentsBySourceExternalIds } from "@/lib/raw-document-repository";
 import { getSiteUrl } from "@/lib/site-url";
 
@@ -61,9 +64,54 @@ export const metadata: Metadata = {
 };
 
 export default async function Home() {
-  const [latestCommunityDocuments, adSettings] = await Promise.all([
+  const [
+    latestCommunityDocuments,
+    adSettings,
+    mainPageKeywords,
+    promotedPrimaryKeywords,
+    promotedSecondaryKeywords,
+  ] = await Promise.all([
     getLatestRawDocumentsBySourceExternalIds([...MAIN_PAGE_SOURCE_IDS], 200),
     getAdSlotSettingsMap(),
+    getMainPageKeywords(42),
+    prisma.keyword.findMany({
+      where: {
+        level: KeywordLevel.primary,
+      },
+      orderBy: [{ pinned: "desc" }, { updatedAt: "desc" }],
+      take: 20,
+      select: {
+        text: true,
+        generatedPages: {
+          where: {
+            status: GeneratedPageStatus.published,
+          },
+          select: {
+            slug: true,
+          },
+          take: 1,
+        },
+      },
+    }),
+    prisma.keyword.findMany({
+      where: {
+        level: KeywordLevel.secondary,
+      },
+      orderBy: [{ updatedAt: "desc" }],
+      take: 40,
+      select: {
+        text: true,
+        generatedPages: {
+          where: {
+            status: GeneratedPageStatus.published,
+          },
+          select: {
+            slug: true,
+          },
+          take: 1,
+        },
+      },
+    }),
   ]);
 
   const latestCommunityFeed = interleaveCommunityFeed(
@@ -83,7 +131,36 @@ export default async function Home() {
       latestCrawledAt: items[0]?.crawledAt ?? null,
     };
   });
-  const extractedKeywords = extractCommunityKeywords(latestCommunityFeed).slice(0, 42);
+  const usingKeywordSnapshot = mainPageKeywords.length > 0;
+  const extractedKeywords = usingKeywordSnapshot
+    ? mainPageKeywords.map((keyword) => ({
+        text: keyword.text,
+        count: keyword.count,
+        sourceCount: keyword.sourceCount,
+        sources: keyword.sources,
+      }))
+    : extractCommunityKeywords(latestCommunityFeed).slice(0, 42);
+  const promotedKeywordTags = [
+    ...promotedPrimaryKeywords.map((keyword) => ({
+      text: keyword.text,
+      href: keyword.generatedPages[0] ? `/keywords/${keyword.generatedPages[0].slug}` : null,
+      variant: "primary" as const,
+    })),
+    ...promotedSecondaryKeywords.map((keyword) => ({
+      text: keyword.text,
+      href: keyword.generatedPages[0] ? `/keywords/${keyword.generatedPages[0].slug}` : null,
+      variant: "secondary" as const,
+    })),
+  ];
+  const mixedKeywordTags = mixKeywordTags(
+    extractedKeywords.map((keyword) => ({
+      text: keyword.text,
+      href: null,
+      variant: "community" as const,
+    })),
+    promotedKeywordTags,
+    72,
+  );
   const siteUrl = getSiteUrl();
   const homeJsonLd = {
     "@context": "https://schema.org",
@@ -181,6 +258,63 @@ export default async function Home() {
             </div>
           </section>
 
+          <section className="rounded-[30px] border border-black/10 bg-white/92 p-5 shadow-[0_16px_60px_rgba(30,41,59,0.06)] backdrop-blur sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-900">
+                  Title Keywords
+                </div>
+                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                  지금 인기있는 키워드
+                </h2>
+              </div>
+              <div className="rounded-full border border-black/10 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-700">
+                키워드 {extractedKeywords.length}개
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <div className="rounded-[20px] border border-black/10 bg-slate-50/85 px-4 py-3 text-sm text-slate-600">
+                {usingKeywordSnapshot
+                  ? "외부 배치 서버가 저장한 메인페이지용 키워드 snapshot을 우선 표시합니다."
+                  : "외부 snapshot이 비어 있어 현재는 메인페이지용으로 수집한 게시글 제목에서 즉석 추출한 fallback 키워드를 표시합니다."}
+              </div>
+              {mixedKeywordTags.length > 0 ? (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {mixedKeywordTags.map((keyword) => {
+                    const className =
+                      keyword.variant === "primary"
+                        ? "border-sky-200 bg-sky-50 text-sky-950 hover:bg-sky-100"
+                        : keyword.variant === "secondary"
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-950 hover:bg-emerald-100"
+                          : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50";
+
+                    return keyword.href ? (
+                      <a
+                        key={`${keyword.variant}-${keyword.text}-${keyword.href}`}
+                        href={keyword.href}
+                        className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${className}`}
+                      >
+                        {keyword.text}
+                      </a>
+                    ) : (
+                      <span
+                        key={`${keyword.variant}-${keyword.text}`}
+                        className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium ${className}`}
+                      >
+                        {keyword.text}
+                      </span>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="mt-4 rounded-[24px] border border-dashed border-black/10 bg-stone-50/70 px-4 py-6 text-sm text-slate-500">
+                  제목 기반 키워드를 추출할 데이터가 아직 없습니다.
+                </div>
+              )}
+            </div>
+          </section>
+
           <section className="rounded-[30px] border border-black/10 bg-[#0b132b] p-5 text-white shadow-[0_16px_60px_rgba(11,19,43,0.22)] sm:p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -254,59 +388,6 @@ export default async function Home() {
               surfaceClassName="overflow-hidden rounded-[22px] border border-black/10 bg-white/90 px-3 py-3 shadow-[0_10px_32px_rgba(53,58,42,0.08)]"
             />
           </div>
-
-          <section className="rounded-[30px] border border-black/10 bg-white/92 p-5 shadow-[0_16px_60px_rgba(30,41,59,0.06)] backdrop-blur sm:p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-900">
-                  Title Keywords
-                </div>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                  지금 인기있는 키워드
-                </h2>
-              </div>
-              <div className="rounded-full border border-black/10 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-700">
-                키워드 {extractedKeywords.length}개
-              </div>
-            </div>
-
-            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {extractedKeywords.length > 0 ? (
-                extractedKeywords.map((keyword, index) => (
-                  <article
-                    key={keyword.text}
-                    className="rounded-[24px] border border-slate-200 bg-white px-4 py-4 shadow-sm"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-lg font-semibold text-slate-950 break-words">{keyword.text}</div>
-                        <div className="mt-1 text-xs text-slate-500">
-                          title hits {keyword.count} · sources {keyword.sourceCount}
-                        </div>
-                      </div>
-                      <span className="rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-sky-900">
-                        #{index + 1}
-                      </span>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {keyword.sources.map((source) => (
-                        <span
-                          key={`${keyword.text}-${source}`}
-                          className="rounded-full border border-black/10 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700"
-                        >
-                          {source}
-                        </span>
-                      ))}
-                    </div>
-                  </article>
-                ))
-              ) : (
-                <div className="rounded-[24px] border border-dashed border-black/10 bg-stone-50/70 px-4 py-6 text-sm text-slate-500 sm:col-span-2 xl:col-span-3">
-                  제목 기반 키워드를 추출할 데이터가 아직 없습니다.
-                </div>
-              )}
-            </div>
-          </section>
 
           <PublicAdSlot slotKey="home_bottom_native" enabled={adSettings.home_bottom_native} />
         </div>
@@ -428,6 +509,82 @@ function formatSourceName(value: string) {
     .replace(/\s+Userdog$/i, "")
     .replace(/\s+Lite$/i, "")
     .trim();
+}
+
+function mixKeywordTags(
+  communityKeywords: Array<{
+    text: string;
+    href: null;
+    variant: "community";
+  }>,
+  promotedKeywords: Array<{
+    text: string;
+    href: string | null;
+    variant: "primary" | "secondary";
+  }>,
+  limit: number,
+) {
+  const results: Array<{
+    text: string;
+    href: string | null;
+    variant: "community" | "primary" | "secondary";
+  }> = [];
+  const seen = new Set<string>();
+  let promotedIndex = 0;
+
+  for (const keyword of communityKeywords) {
+    if (results.length >= limit) {
+      break;
+    }
+
+    pushKeywordTag(results, seen, keyword);
+
+    if (results.length >= limit) {
+      break;
+    }
+
+    if (results.length % 4 === 0) {
+      while (promotedIndex < promotedKeywords.length && results.length < limit) {
+        const beforeLength = results.length;
+        pushKeywordTag(results, seen, promotedKeywords[promotedIndex]);
+        promotedIndex += 1;
+
+        if (results.length > beforeLength) {
+          break;
+        }
+      }
+    }
+  }
+
+  while (promotedIndex < promotedKeywords.length && results.length < limit) {
+    pushKeywordTag(results, seen, promotedKeywords[promotedIndex]);
+    promotedIndex += 1;
+  }
+
+  return results;
+}
+
+function pushKeywordTag(
+  results: Array<{
+    text: string;
+    href: string | null;
+    variant: "community" | "primary" | "secondary";
+  }>,
+  seen: Set<string>,
+  keyword: {
+    text: string;
+    href: string | null;
+    variant: "community" | "primary" | "secondary";
+  },
+) {
+  const normalized = keyword.text.trim().toLowerCase();
+
+  if (!normalized || seen.has(normalized)) {
+    return;
+  }
+
+  seen.add(normalized);
+  results.push(keyword);
 }
 
 function formatDate(value: Date) {
