@@ -39,6 +39,8 @@ const STOPWORDS = new Set([
   "live",
 ]);
 
+const MAX_COMMUNITY_FEED_ITEMS = 500;
+
 export const metadata: Metadata = {
   title: "CommunityWikiKorea",
   description: "한국 커뮤니티 인기 게시글과 제목 기반 키워드를 한 화면에서 추적하는 포털.",
@@ -70,7 +72,7 @@ export default async function Home() {
         .filter((document) => document.source.externalId === externalId)
         .sort((left, right) => right.crawledAt.getTime() - left.crawledAt.getTime()),
     ),
-  );
+  ).slice(0, MAX_COMMUNITY_FEED_ITEMS);
   const sourceCards = MAIN_PAGE_SOURCE_IDS.map((externalId) => {
     const items = latestCommunityFeed.filter((document) => document.source.externalId === externalId);
 
