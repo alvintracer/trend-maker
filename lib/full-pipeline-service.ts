@@ -2,6 +2,7 @@ import { GeneratedPageStatus, KeywordLevel, KeywordStatus } from "@prisma/client
 
 import { generatePagesForKeywords } from "@/lib/generated-page-service";
 import { ingestSource } from "@/lib/ingestion-service";
+import { cleanupDetailPipelineData } from "@/lib/detail-pipeline-cleanup";
 import { generateKeywordAnalysesForKeywords } from "@/lib/keyword-analysis-service";
 import { generatePrimaryKeywordsForSources } from "@/lib/keyword-service";
 import { getManualPrimaryKeywords } from "@/lib/keyword-repository";
@@ -45,6 +46,7 @@ type FullPipelineOptions = {
   primarySelection?: PrimarySelectionMode;
   secondaryForceRefresh?: boolean;
   skipAnalysis?: boolean;
+  cleanupStaleDetailData?: boolean;
 };
 
 type IngestionSuccess = {
@@ -203,6 +205,7 @@ export async function runFullPipeline(
   const primarySelection = options.primarySelection ?? "auto";
   const secondaryForceRefresh = options.secondaryForceRefresh ?? false;
   const skipAnalysis = options.skipAnalysis ?? false;
+  const cleanupStaleDetailData = options.cleanupStaleDetailData ?? false;
   const stageResolver = createStageDispositionResolver(startFrom, endAt);
   const notify = async (update: StageUpdate) => {
     await hooks.onStageUpdate?.(update);
@@ -628,6 +631,14 @@ export async function runFullPipeline(
     });
   }
 
+  const cleanupResult =
+    cleanupStaleDetailData && primarySelection === "manual"
+      ? await cleanupDetailPipelineData({
+          retainedPrimaryKeywordIds: selectedPrimaryKeywordIds,
+          retainedSecondaryKeywordIds: selectedSecondaryKeywordIds,
+        })
+      : null;
+
   return {
     sourceIds,
     startFrom,
@@ -653,6 +664,7 @@ export async function runFullPipeline(
       failed: publishResults.filter((entry) => !entry.ok).length,
       results: publishResults,
     },
+    cleanup: cleanupResult,
   };
 }
 
@@ -724,6 +736,9 @@ export async function runTrackedFullPipeline(options: FullPipelineOptions = {}) 
     "info",
     `Run mode: ${options.primarySelection === "manual" ? "manual-primary" : "auto"} | ingest ${skipIngest ? "off" : "on"} | start ${startFrom} | end ${endAt}${options.secondaryForceRefresh ? " | secondary refresh on" : ""}`,
   );
+  if (options.cleanupStaleDetailData) {
+    await appendLog("info", "Detail pipeline cleanup enabled");
+  }
 
   if (stageResolver.endIndex < STAGE_ORDER.length - 1) {
     await appendLog("warn", `Pipeline target stage limited to: ${endAt}`);
@@ -764,6 +779,12 @@ export async function runTrackedFullPipeline(options: FullPipelineOptions = {}) 
       generatedPages: result.pages.generatedCount,
       publishedItems: result.publish.succeeded,
     });
+    if (result.cleanup) {
+      await appendLog(
+        "info",
+        `cleanup: stalePrimary=${result.cleanup.stalePrimaryCount} detachedRelations=${result.cleanup.detachedSuggestRelationCount} deletedPages=${result.cleanup.deletedGeneratedPageCount} deletedSecondary=${result.cleanup.deletedSecondaryCount} deletedTertiary=${result.cleanup.deletedTertiaryCount} trimmedAnalysis=${result.cleanup.trimmedAnalysisCount} trimmedMetric=${result.cleanup.trimmedMetricCount}`,
+      );
+    }
     await appendLog("info", "Pipeline run completed");
 
     return {

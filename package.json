@@ -13,6 +13,7 @@
     "db:migrate:deploy": "prisma db push",
     "db:push": "prisma db push",
     "db:seed": "node prisma/seed.mjs",
+    "run:detail-pipeline": "node --import tsx ./scripts/run-detail-pipeline.ts",
     "verify:primary": "node --import tsx ./scripts/verify-primary-keywords.ts",
     "verify:secondary": "node --import tsx ./scripts/verify-secondary-keywords.ts",
     "verify:analysis": "node --import tsx ./scripts/verify-keyword-analysis.ts",

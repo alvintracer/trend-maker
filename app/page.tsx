@@ -43,6 +43,24 @@ const STOPWORDS = new Set([
 ]);
 
 const MAX_COMMUNITY_FEED_ITEMS = 500;
+const MAIN_KEYWORD_TAG_LIMIT = 200;
+const COMMUNITY_KEYWORD_SHARE = 6;
+const DETAIL_KEYWORD_SHARE = 4;
+const COMMUNITY_KEYWORD_TARGET = Math.floor(
+  (MAIN_KEYWORD_TAG_LIMIT * COMMUNITY_KEYWORD_SHARE) /
+    (COMMUNITY_KEYWORD_SHARE + DETAIL_KEYWORD_SHARE),
+);
+const DETAIL_PRIMARY_KEYWORD_LIMIT = 32;
+const DETAIL_SECONDARY_KEYWORD_LIMIT = 64;
+const AV_ACTOR_KEYWORD_LIMIT = 40;
+
+type KeywordTagVariant = "community" | "primary" | "secondary" | "av";
+
+type KeywordTag = {
+  text: string;
+  href: string | null;
+  variant: KeywordTagVariant;
+};
 
 export const metadata: Metadata = {
   title: "CommunityWikiKorea",
@@ -64,13 +82,8 @@ export const metadata: Metadata = {
 };
 
 export default async function Home() {
-  const [
-    latestCommunityDocuments,
-    adSettings,
-    mainPageKeywords,
-    promotedPrimaryKeywords,
-    promotedSecondaryKeywords,
-  ] = await Promise.all([
+  const [latestCommunityDocuments, adSettings, mainPageKeywords, promotedPrimaryKeywords, avActors] =
+    await Promise.all([
     getLatestRawDocumentsBySourceExternalIds([...MAIN_PAGE_SOURCE_IDS], 200),
     getAdSlotSettingsMap(),
     getMainPageKeywords(0),
@@ -78,9 +91,10 @@ export default async function Home() {
       where: {
         level: KeywordLevel.primary,
       },
-      orderBy: [{ pinned: "desc" }, { updatedAt: "desc" }],
-      take: 20,
+      orderBy: [{ pinned: "desc" }, { isManual: "desc" }, { updatedAt: "desc" }],
+      take: DETAIL_PRIMARY_KEYWORD_LIMIT,
       select: {
+        id: true,
         text: true,
         generatedPages: {
           where: {
@@ -96,23 +110,48 @@ export default async function Home() {
     prisma.keyword.findMany({
       where: {
         level: KeywordLevel.secondary,
+        sourceLabel: "namu_wiki_actor",
+        parentKeyword: {
+          sourceLabel: "namu_wiki",
+        },
       },
       orderBy: [{ updatedAt: "desc" }],
-      take: 40,
+      take: AV_ACTOR_KEYWORD_LIMIT * 3,
       select: {
         text: true,
-        generatedPages: {
-          where: {
-            status: GeneratedPageStatus.published,
-          },
+        parentKeyword: {
           select: {
-            slug: true,
+            text: true,
           },
-          take: 1,
         },
       },
     }),
   ]);
+  const promotedSecondaryKeywords = await prisma.keyword.findMany({
+    where: {
+      level: KeywordLevel.secondary,
+      sourceLabel: {
+        not: "namu_wiki_actor",
+      },
+      parentKeywordId: {
+        in: promotedPrimaryKeywords.map((keyword) => keyword.id),
+      },
+    },
+    orderBy: [{ updatedAt: "desc" }],
+    take: DETAIL_SECONDARY_KEYWORD_LIMIT * 2,
+    select: {
+      text: true,
+      generatedPages: {
+        where: {
+          status: GeneratedPageStatus.published,
+        },
+        select: {
+          slug: true,
+        },
+        take: 1,
+      },
+    },
+  });
 
   const latestCommunityFeed = interleaveCommunityFeed(
     MAIN_PAGE_SOURCE_IDS.map((externalId) =>
@@ -121,16 +160,6 @@ export default async function Home() {
         .sort((left, right) => right.crawledAt.getTime() - left.crawledAt.getTime()),
     ),
   ).slice(0, MAX_COMMUNITY_FEED_ITEMS);
-  const sourceCards = MAIN_PAGE_SOURCE_IDS.map((externalId) => {
-    const items = latestCommunityFeed.filter((document) => document.source.externalId === externalId);
-
-    return {
-      externalId,
-      name: formatSourceName(items[0]?.source.name ?? externalId),
-      items,
-      latestCrawledAt: items[0]?.crawledAt ?? null,
-    };
-  });
   const usingKeywordSnapshot = mainPageKeywords.length > 0;
   const extractedKeywords = usingKeywordSnapshot
     ? mainPageKeywords.map((keyword) => ({
@@ -152,15 +181,24 @@ export default async function Home() {
       variant: "secondary" as const,
     })),
   ];
-  const mixedKeywordTags = mixKeywordTags(
-    extractedKeywords.map((keyword) => ({
+  const avActorKeywordTags = buildAvActorKeywordTags(
+    avActors.filter(
+      (actor): actor is { text: string; parentKeyword: { text: string } } =>
+        actor.parentKeyword !== null,
+    ),
+    AV_ACTOR_KEYWORD_LIMIT,
+  );
+  const mixedKeywordTags = mixKeywordTags({
+    communityKeywords: extractedKeywords.map((keyword) => ({
       text: keyword.text,
       href: null,
       variant: "community" as const,
     })),
-    promotedKeywordTags,
-    extractedKeywords.length + promotedKeywordTags.length,
-  );
+    primaryKeywords: promotedKeywordTags.filter((keyword) => keyword.variant === "primary"),
+    secondaryKeywords: promotedKeywordTags.filter((keyword) => keyword.variant === "secondary"),
+    avKeywords: avActorKeywordTags,
+    limit: MAIN_KEYWORD_TAG_LIMIT,
+  });
   const siteUrl = getSiteUrl();
   const homeJsonLd = {
     "@context": "https://schema.org",
@@ -269,15 +307,15 @@ export default async function Home() {
                 </h2>
               </div>
               <div className="rounded-full border border-black/10 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-700">
-                키워드 {extractedKeywords.length}개
+                키워드 {mixedKeywordTags.length}개
               </div>
             </div>
 
             <div className="mt-5">
               <div className="rounded-[20px] border border-black/10 bg-slate-50/85 px-4 py-3 text-sm text-slate-600">
                 {usingKeywordSnapshot
-                  ? "외부 배치 서버가 저장한 메인페이지용 키워드 snapshot을 우선 표시합니다."
-                  : "외부 snapshot이 비어 있어 현재는 메인페이지용으로 수집한 게시글 제목에서 즉석 추출한 fallback 키워드를 표시합니다."}
+                  ? "바로 지금, 대한민국 커뮤니티에서 가장 인기있는 키워드들입니다."
+                  : "바로 지금, 대한민국 커뮤니티에서 가장 인기있는 키워드들입니다."}
               </div>
               {mixedKeywordTags.length > 0 ? (
                 <div className="mt-4 flex flex-wrap gap-2">
@@ -287,7 +325,9 @@ export default async function Home() {
                         ? "border-sky-200 bg-sky-50 text-sky-950 hover:bg-sky-100"
                         : keyword.variant === "secondary"
                           ? "border-emerald-200 bg-emerald-50 text-emerald-950 hover:bg-emerald-100"
-                          : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50";
+                          : keyword.variant === "av"
+                            ? "border-rose-200 bg-rose-50 text-rose-950 hover:bg-rose-100"
+                            : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50";
 
                     return keyword.href ? (
                       <a
@@ -511,72 +551,81 @@ function formatSourceName(value: string) {
     .trim();
 }
 
-function mixKeywordTags(
-  communityKeywords: Array<{
-    text: string;
-    href: null;
-    variant: "community";
-  }>,
-  promotedKeywords: Array<{
-    text: string;
-    href: string | null;
-    variant: "primary" | "secondary";
-  }>,
-  limit: number,
-) {
-  const results: Array<{
-    text: string;
-    href: string | null;
-    variant: "community" | "primary" | "secondary";
-  }> = [];
+function mixKeywordTags(input: {
+  communityKeywords: KeywordTag[];
+  primaryKeywords: KeywordTag[];
+  secondaryKeywords: KeywordTag[];
+  avKeywords: KeywordTag[];
+  limit: number;
+}) {
+  const results: KeywordTag[] = [];
   const seen = new Set<string>();
-  let promotedIndex = 0;
+  const communityQueue = [...input.communityKeywords];
+  const promotedQueues = {
+    primary: [...input.primaryKeywords],
+    secondary: [...input.secondaryKeywords],
+    av: [...input.avKeywords],
+  };
+  const promotedPattern: Array<"primary" | "secondary" | "av" | "secondary"> = [
+    "primary",
+    "secondary",
+    "av",
+    "secondary",
+  ];
 
-  for (const keyword of communityKeywords) {
-    if (results.length >= limit) {
-      break;
-    }
+  while (results.length < input.limit) {
+    let pushedInCycle = false;
 
-    pushKeywordTag(results, seen, keyword);
+    while (communityQueue.length > 0 && countVariant(results, "community") < COMMUNITY_KEYWORD_TARGET) {
+      const beforeLength = results.length;
+      pushKeywordTag(results, seen, communityQueue.shift());
+      pushedInCycle = pushedInCycle || results.length > beforeLength;
 
-    if (results.length >= limit) {
-      break;
-    }
-
-    if (results.length % 4 === 0) {
-      while (promotedIndex < promotedKeywords.length && results.length < limit) {
-        const beforeLength = results.length;
-        pushKeywordTag(results, seen, promotedKeywords[promotedIndex]);
-        promotedIndex += 1;
-
-        if (results.length > beforeLength) {
-          break;
-        }
+      if (
+        results.length >= input.limit ||
+        countVariant(results, "community") % COMMUNITY_KEYWORD_SHARE === 0
+      ) {
+        break;
       }
+    }
+
+    for (const variant of promotedPattern) {
+      if (results.length >= input.limit) {
+        break;
+      }
+
+      const beforeLength = results.length;
+      pushNextKeywordFromQueue(results, seen, promotedQueues[variant]);
+      pushedInCycle = pushedInCycle || results.length > beforeLength;
+    }
+
+    if (!pushedInCycle) {
+      break;
     }
   }
 
-  while (promotedIndex < promotedKeywords.length && results.length < limit) {
-    pushKeywordTag(results, seen, promotedKeywords[promotedIndex]);
-    promotedIndex += 1;
+  while (results.length < input.limit && communityQueue.length > 0) {
+    pushKeywordTag(results, seen, communityQueue.shift());
+  }
+
+  for (const variant of ["primary", "secondary", "av"] as const) {
+    while (results.length < input.limit && promotedQueues[variant].length > 0) {
+      pushNextKeywordFromQueue(results, seen, promotedQueues[variant]);
+    }
   }
 
   return results;
 }
 
 function pushKeywordTag(
-  results: Array<{
-    text: string;
-    href: string | null;
-    variant: "community" | "primary" | "secondary";
-  }>,
+  results: KeywordTag[],
   seen: Set<string>,
-  keyword: {
-    text: string;
-    href: string | null;
-    variant: "community" | "primary" | "secondary";
-  },
+  keyword?: KeywordTag,
 ) {
+  if (!keyword) {
+    return;
+  }
+
   const normalized = keyword.text.trim().toLowerCase();
 
   if (!normalized || seen.has(normalized)) {
@@ -587,9 +636,58 @@ function pushKeywordTag(
   results.push(keyword);
 }
 
-function formatDate(value: Date) {
-  return new Intl.DateTimeFormat("ko-KR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(value);
+function pushNextKeywordFromQueue(results: KeywordTag[], seen: Set<string>, queue: KeywordTag[]) {
+  while (queue.length > 0) {
+    const beforeLength = results.length;
+    pushKeywordTag(results, seen, queue.shift());
+
+    if (results.length > beforeLength) {
+      return;
+    }
+  }
+}
+
+function buildAvActorKeywordTags(
+  actors: Array<{
+    text: string;
+    parentKeyword: {
+      text: string;
+    };
+  }>,
+  limit: number,
+) {
+  const grouped = new Map<string, KeywordTag[]>();
+
+  for (const actor of actors) {
+    const initial = actor.parentKeyword.text.trim().slice(-1) || "etc";
+    const current = grouped.get(initial) ?? [];
+    current.push({
+      text: actor.text,
+      href: null,
+      variant: "av",
+    });
+    grouped.set(initial, current);
+  }
+
+  const queues = [...grouped.entries()]
+    .sort(([left], [right]) => left.localeCompare(right, "ko"))
+    .map(([, items]) => [...items]);
+  const results: KeywordTag[] = [];
+  const seen = new Set<string>();
+
+  while (queues.some((queue) => queue.length > 0) && results.length < limit) {
+    for (const queue of queues) {
+      if (results.length >= limit) {
+        break;
+      }
+
+      pushNextKeywordFromQueue(results, seen, queue);
+    }
+  }
+
+  return results;
+}
+
+function countVariant(results: KeywordTag[], variant: KeywordTagVariant) {
+  return results.reduce((count, keyword) => count + (keyword.variant === variant ? 1 : 0), 0);
 }
