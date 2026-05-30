@@ -75,7 +75,7 @@ export async function getMainPageKeywords(limit = 42): Promise<MainPageKeywordSn
       { count: "desc" },
       { normalizedText: "asc" },
     ],
-    take: limit,
+    ...(limit > 0 ? { take: limit } : {}),
   });
 
   return rows.map((row) => ({

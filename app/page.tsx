@@ -73,7 +73,7 @@ export default async function Home() {
   ] = await Promise.all([
     getLatestRawDocumentsBySourceExternalIds([...MAIN_PAGE_SOURCE_IDS], 200),
     getAdSlotSettingsMap(),
-    getMainPageKeywords(42),
+    getMainPageKeywords(0),
     prisma.keyword.findMany({
       where: {
         level: KeywordLevel.primary,
@@ -139,7 +139,7 @@ export default async function Home() {
         sourceCount: keyword.sourceCount,
         sources: keyword.sources,
       }))
-    : extractCommunityKeywords(latestCommunityFeed).slice(0, 42);
+    : extractCommunityKeywords(latestCommunityFeed);
   const promotedKeywordTags = [
     ...promotedPrimaryKeywords.map((keyword) => ({
       text: keyword.text,
@@ -159,7 +159,7 @@ export default async function Home() {
       variant: "community" as const,
     })),
     promotedKeywordTags,
-    72,
+    extractedKeywords.length + promotedKeywordTags.length,
   );
   const siteUrl = getSiteUrl();
   const homeJsonLd = {
