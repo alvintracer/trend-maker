@@ -162,8 +162,6 @@ export function KeywordTreemap({ items }: KeywordTreemapProps) {
         const color = PALETTE[index % PALETTE.length];
         const sizeRatio = rect.item.value / maxValue;
         const fontSize = Math.max(11, Math.min(22, 11 + sizeRatio * 14));
-        const countFontSize = Math.max(9, fontSize - 3);
-        const showCount = rect.w > 50 && rect.h > 35;
         const Tag = rect.item.href ? "a" : "div";
 
         return (
@@ -193,14 +191,6 @@ export function KeywordTreemap({ items }: KeywordTreemapProps) {
             >
               {rect.item.text}
             </span>
-            {showCount && (
-              <span
-                className="mt-0.5 font-medium opacity-60"
-                style={{ fontSize: countFontSize, color: color.text }}
-              >
-                {rect.item.value}회
-              </span>
-            )}
           </Tag>
         );
       })}
