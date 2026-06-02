@@ -51,10 +51,10 @@ function toCandidateMapKey(value: string) {
 }
 
 export function extractPrimaryKeywordCandidates(
-  inputs: Array<{ sourceId: string; text: string }>,
+  inputs: Array<{ sourceId: string; text: string; weight?: number }>,
   limit = 30,
 ) {
-  const frequencyMap = new Map<string, { text: string; count: number; sourceIds: Set<string> }>();
+  const frequencyMap = new Map<string, { text: string; count: number; weightedScore: number; sourceIds: Set<string> }>();
 
   for (const input of inputs) {
     const tokens = tokenize(input.text);
@@ -62,7 +62,7 @@ export function extractPrimaryKeywordCandidates(
 
     for (const token of tokens) {
       const normalizedText = toCandidateMapKey(token);
-      upsertCandidate(frequencyMap, normalizedText, token, input.sourceId, localSeen);
+      upsertCandidate(frequencyMap, normalizedText, token, input.sourceId, localSeen, input.weight ?? 1.0);
     }
 
     for (let index = 0; index < tokens.length - 1; index += 1) {
@@ -73,7 +73,7 @@ export function extractPrimaryKeywordCandidates(
       }
 
       const normalizedText = toCandidateMapKey(phrase);
-      upsertCandidate(frequencyMap, normalizedText, phrase, input.sourceId, localSeen);
+      upsertCandidate(frequencyMap, normalizedText, phrase, input.sourceId, localSeen, input.weight ?? 1.0);
     }
   }
 
@@ -81,12 +81,13 @@ export function extractPrimaryKeywordCandidates(
     .map(([normalizedText, value]): PrimaryKeywordCandidate => {
       const sourceCount = value.sourceIds.size;
       const frequencyScore = value.count;
+      const weightedScore = value.weightedScore;
       const isBigram = value.text.includes(" ");
 
       // Bigrams get a 1.8x scoring boost since they're more specific
       const bigramMultiplier = isBigram ? 1.8 : 1.0;
       const opportunityScore = Number(
-        ((frequencyScore * 0.7 + sourceCount * 1.3) * bigramMultiplier).toFixed(2),
+        ((weightedScore * 0.7 + sourceCount * 1.3) * bigramMultiplier).toFixed(2),
       );
 
       return {
@@ -121,16 +122,18 @@ export function extractPrimaryKeywordCandidates(
 }
 
 function upsertCandidate(
-  frequencyMap: Map<string, { text: string; count: number; sourceIds: Set<string> }>,
+  frequencyMap: Map<string, { text: string; count: number; weightedScore: number; sourceIds: Set<string> }>,
   normalizedText: string,
   text: string,
   sourceId: string,
   localSeen: Set<string>,
+  weight: number,
 ) {
   const existing = frequencyMap.get(normalizedText);
 
   if (existing) {
     existing.count += 1;
+    existing.weightedScore += weight;
 
     if (!localSeen.has(normalizedText)) {
       existing.sourceIds.add(sourceId);
@@ -143,6 +146,7 @@ function upsertCandidate(
   frequencyMap.set(normalizedText, {
     text,
     count: 1,
+    weightedScore: weight,
     sourceIds: new Set([sourceId]),
   });
   localSeen.add(normalizedText);

@@ -497,51 +497,92 @@ export default async function Home() {
   );
 }
 
+function parseViewCount(content: string | null): number {
+  if (!content) return 0;
+  const match = content.match(/views:\s*(\d[\d,]*)/i);
+  if (!match) return 0;
+  return parseInt(match[1].replace(/,/g, ""), 10) || 0;
+}
+
 function extractCommunityKeywords(
   documents: Array<{
     title: string | null;
+    content: string | null;
     source: {
       name: string;
     };
   }>,
 ) {
+  const totalDocs = documents.length;
   const keywordMap = new Map<
     string,
     {
       text: string;
+      score: number;
       count: number;
       sources: Set<string>;
     }
   >();
 
-  for (const document of documents) {
+  for (let docIndex = 0; docIndex < documents.length; docIndex++) {
+    const document = documents[docIndex];
     const title = (document.title ?? "").trim();
 
     if (!title) {
       continue;
     }
 
-    const tokens = new Set(
-      title
-        .split(/[^0-9A-Za-z가-힣]+/)
-        .map((token) => token.trim())
-        .filter((token) => token.length >= 2 && token.length <= 20)
-        .filter((token) => !/^\d+$/.test(token))
-        .filter((token) => !STOPWORDS.has(token.toLowerCase())),
-    );
+    // Recency weight: position 0 (newest) = 2.0x, last position = 1.0x
+    const recencyWeight = totalDocs > 1
+      ? 2.0 - (docIndex / (totalDocs - 1)) * 1.0
+      : 2.0;
 
-    for (const token of tokens) {
-      const normalized = token.toLowerCase();
+    // Views weight: log scale so very high views don't dominate
+    const views = parseViewCount(document.content ?? null);
+    const viewsWeight = views > 0 ? 1.0 + Math.log10(Math.max(views, 1)) / 5.0 : 1.0;
+
+    const postWeight = recencyWeight * viewsWeight;
+
+    const unigrams = title
+      .split(/[^0-9A-Za-z\uac00-\ud7a3]+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 2 && token.length <= 20)
+      .filter((token) => !/^\d+$/.test(token))
+      .filter((token) => !STOPWORDS.has(token.toLowerCase()));
+
+    // Generate bigrams from consecutive unigrams
+    const bigrams: string[] = [];
+    for (let i = 0; i < unigrams.length - 1; i++) {
+      bigrams.push(`${unigrams[i]} ${unigrams[i + 1]}`);
+    }
+
+    const allTokens = [
+      ...unigrams.map((t) => ({ text: t, isBigram: false })),
+      ...bigrams.map((t) => ({ text: t, isBigram: true })),
+    ];
+
+    const localSeen = new Set<string>();
+
+    for (const token of allTokens) {
+      const normalized = token.text.toLowerCase();
+      if (localSeen.has(normalized)) continue;
+      localSeen.add(normalized);
+
+      // Bigrams get 1.5x bonus for being more specific
+      const tokenWeight = postWeight * (token.isBigram ? 1.5 : 1.0);
+
       const existing = keywordMap.get(normalized);
 
       if (existing) {
+        existing.score += tokenWeight;
         existing.count += 1;
         existing.sources.add(document.source.name);
         continue;
       }
 
       keywordMap.set(normalized, {
-        text: token,
+        text: token.text,
+        score: tokenWeight,
         count: 1,
         sources: new Set([document.source.name]),
       });
@@ -549,19 +590,25 @@ function extractCommunityKeywords(
   }
 
   return Array.from(keywordMap.values())
+    .filter((keyword) => {
+      // Single words must appear in 2+ sources
+      const isBigram = keyword.text.includes(" ");
+      if (!isBigram && keyword.sources.size < 2) return false;
+      return true;
+    })
     .map((keyword) => ({
       text: keyword.text,
-      count: keyword.count,
+      count: Math.round(keyword.score * 10) / 10,
       sourceCount: keyword.sources.size,
       sources: [...keyword.sources].sort(),
     }))
     .sort((left, right) => {
-      if (right.sourceCount !== left.sourceCount) {
-        return right.sourceCount - left.sourceCount;
-      }
-
       if (right.count !== left.count) {
         return right.count - left.count;
+      }
+
+      if (right.sourceCount !== left.sourceCount) {
+        return right.sourceCount - left.sourceCount;
       }
 
       return left.text.localeCompare(right.text, "ko");

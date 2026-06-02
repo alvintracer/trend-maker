@@ -96,6 +96,7 @@ export async function getLatestRawDocumentsBySourceExternalIds(
       id: true,
       url: true,
       title: true,
+      content: true,
       crawledAt: true,
       source: {
         select: {
