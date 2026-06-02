@@ -165,14 +165,15 @@ export default async function Home() {
     ),
   ).slice(0, MAX_COMMUNITY_FEED_ITEMS);
   const usingKeywordSnapshot = mainPageKeywords.length > 0;
-  const extractedKeywords = usingKeywordSnapshot
+  const extractedKeywords = (usingKeywordSnapshot
     ? mainPageKeywords.map((keyword) => ({
         text: keyword.text,
         count: keyword.count,
         sourceCount: keyword.sourceCount,
         sources: keyword.sources,
       }))
-    : extractCommunityKeywords(latestCommunityFeed);
+    : extractCommunityKeywords(latestCommunityFeed)
+  ).filter((keyword) => !STOPWORDS.has(keyword.text));
   const promotedKeywordTags = [
     ...promotedPrimaryKeywords.map((keyword) => ({
       text: keyword.text,
