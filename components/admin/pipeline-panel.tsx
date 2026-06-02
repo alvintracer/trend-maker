@@ -423,9 +423,9 @@ export function PipelinePanel({ initialRun }: { initialRun: PipelineRunView | nu
                             : "text-emerald-300"
                       }
                     >
-                      {entry.level.toUpperCase()}
+                      {(entry.level ?? "info").toUpperCase()}
                     </span>{" "}
-                    <span>{entry.message}</span>
+                    <span>{entry.message ?? ""}</span>
                   </div>
                 ))
               ) : (
@@ -548,16 +548,36 @@ function stepStatusClassName(status: PipelineStep["status"]) {
   return `${base} bg-slate-200 text-slate-700`;
 }
 
-function formatDate(value: string | Date) {
+function formatDate(value: string | Date | null | undefined) {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
   return new Intl.DateTimeFormat("ko-KR", {
     dateStyle: "short",
     timeStyle: "short",
-  }).format(new Date(value));
+  }).format(date);
 }
 
-function formatDateTime(value: string | Date) {
+function formatDateTime(value: string | Date | null | undefined) {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
   return new Intl.DateTimeFormat("ko-KR", {
     dateStyle: "short",
     timeStyle: "medium",
-  }).format(new Date(value));
+  }).format(date);
 }

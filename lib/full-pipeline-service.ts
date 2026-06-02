@@ -1,6 +1,6 @@
 import { GeneratedPageStatus, KeywordLevel, KeywordStatus } from "@prisma/client";
 
-import { generatePagesForKeywords } from "@/lib/generated-page-service";
+import { generatePagesForKeywords, generatePagesForSecondaryKeywords } from "@/lib/generated-page-service";
 import { ingestSource } from "@/lib/ingestion-service";
 import { cleanupDetailPipelineData } from "@/lib/detail-pipeline-cleanup";
 import { generateKeywordAnalysesForKeywords } from "@/lib/keyword-analysis-service";
@@ -548,10 +548,24 @@ export async function runFullPipeline(
     });
   }
 
-  const pageResult =
+  const primaryPageResult =
     pageDisposition === "run" && pageCandidateKeywordIds.length > 0
       ? await generatePagesForKeywords(pageCandidateKeywordIds)
       : { requestedCount: 0, generatedCount: 0 };
+
+  const eligibleSecondaryForPages = selectedSecondaryKeywords
+    .filter((kw) => (kw.metrics[0]?.opportunityScore ?? 0) >= 8)
+    .map((kw) => kw.id);
+
+  const secondaryPageResult =
+    pageDisposition === "run" && eligibleSecondaryForPages.length > 0
+      ? await generatePagesForSecondaryKeywords(eligibleSecondaryForPages)
+      : { requestedCount: 0, generatedCount: 0 };
+
+  const pageResult = {
+    requestedCount: primaryPageResult.requestedCount + secondaryPageResult.requestedCount,
+    generatedCount: primaryPageResult.generatedCount + secondaryPageResult.generatedCount,
+  };
 
   if (pageDisposition === "run") {
     await notify({
@@ -595,7 +609,7 @@ export async function runFullPipeline(
         : await prisma.generatedPage.findMany({
             where: {
               keywordId: {
-                in: pageCandidateKeywordIds,
+                in: [...pageCandidateKeywordIds, ...eligibleSecondaryForPages],
               },
             },
             select: {

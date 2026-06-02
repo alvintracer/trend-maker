@@ -19,13 +19,14 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL(getSiteUrl()),
-  applicationName: "CommunityWikiKorea",
+  applicationName: "CommunityWikiKorea | 커뮤니티위키코리아",
   manifest: "/manifest.webmanifest",
   title: {
-    default: "CommunityWikiKorea",
-    template: "%s | CommunityWikiKorea",
+    default: "CommunityWikiKorea | 커뮤니티위키코리아",
+    template: "%s | CommunityWikiKorea 커뮤니티위키코리아",
   },
-  description: "한국 커뮤니티 실시간 트렌드 키워드와 허브 페이지를 모아보는 위키.",
+  description: "커뮤니티위키코리아 - 한국 커뮤니티 실시간 트렌드 키워드와 인기 게시글을 모아보는 위키 포털. 컴코에서 디시, 에펨코리아, 아카라이브, 독드립 인기글을 한눈에.",
+  keywords: ["커뮤니티위키코리아", "커뮤니티코리아", "커뮤니티위키", "컴코", "CommunityWikiKorea", "한국 커뮤니티", "실시간 인기글", "트렌드 키워드", "디시인사이드", "에펨코리아", "아카라이브", "독드립"],
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "32x32", type: "image/png" },
@@ -41,23 +42,23 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "ko_KR",
-    siteName: "CommunityWikiKorea",
-    title: "CommunityWikiKorea",
-    description: "한국 커뮤니티 실시간 트렌드 키워드와 허브 페이지를 모아보는 위키.",
+    siteName: "CommunityWikiKorea | 커뮤니티위키코리아",
+    title: "CommunityWikiKorea | 커뮤니티위키코리아",
+    description: "커뮤니티위키코리아 - 한국 커뮤니티 실시간 트렌드 키워드와 인기 게시글을 모아보는 위키 포털. 컴코에서 디시, 에펨코리아, 아카라이브, 독드립 인기글을 한눈에.",
     url: "/",
     images: [
       {
         url: "/icon-512.png",
         width: 512,
         height: 512,
-        alt: "CommunityWikiKorea logo",
+        alt: "CommunityWikiKorea 커뮤니티위키코리아 logo",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "CommunityWikiKorea",
-    description: "한국 커뮤니티 실시간 트렌드 키워드와 허브 페이지를 모아보는 위키.",
+    title: "CommunityWikiKorea | 커뮤니티위키코리아",
+    description: "커뮤니티위키코리아 - 한국 커뮤니티 실시간 트렌드 키워드와 인기 게시글을 모아보는 위키 포털.",
     images: ["/icon-512.png"],
   },
   robots: {
@@ -78,6 +79,7 @@ export default function RootLayout({
       {
         "@type": "Organization",
         name: "CommunityWikiKorea",
+        alternateName: ["커뮤니티위키코리아", "커뮤니티코리아", "커뮤니티위키", "컴코"],
         url: siteUrl,
         logo: `${siteUrl}/icon-512.png`,
         image: `${siteUrl}/icon-512.png`,
@@ -85,7 +87,9 @@ export default function RootLayout({
       {
         "@type": "WebSite",
         name: "CommunityWikiKorea",
+        alternateName: ["커뮤니티위키코리아", "컴코"],
         url: siteUrl,
+        inLanguage: "ko-KR",
         publisher: {
           "@type": "Organization",
           name: "CommunityWikiKorea",
@@ -122,9 +126,9 @@ export default function RootLayout({
                   className="rounded-xl border border-black/10 bg-white"
                 />
                 <div>
-                  <div className="text-sm font-semibold tracking-tight">CommunityWikiKorea</div>
+                  <div className="text-sm font-semibold tracking-tight">CommunityWikiKorea | 커뮤니티위키코리아</div>
                   <p className="mt-1 text-sm text-slate-600">
-                    한국 커뮤니티 실시간 트렌드 키워드와 허브를 모아보는 위키.
+                    커뮤니티위키코리아 - 한국 커뮤니티 실시간 트렌드 키워드와 인기 게시글을 모아보는 위키 포털.
                   </p>
                 </div>
               </div>
@@ -162,7 +166,7 @@ export default function RootLayout({
               </nav>
             </div>
             <div className="text-xs text-slate-500">
-              © 2026 CommunityWikiKorea. All rights reserved.
+              © 2026 CommunityWikiKorea 커뮤니티위키코리아. All rights reserved.
             </div>
           </div>
         </footer>

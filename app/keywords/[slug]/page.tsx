@@ -11,6 +11,7 @@ import {
   getGeneratedPageByRouteSlug,
   parseGeneratedPageArray,
 } from "@/lib/generated-page-service";
+import { prisma } from "@/lib/prisma";
 import { isSearchCrawlerUserAgent, toAbsoluteUrl } from "@/lib/seo";
 import { getSiteUrl } from "@/lib/site-url";
 import { getTrafficRedirectSettings } from "@/lib/traffic-redirect-settings";
@@ -32,6 +33,53 @@ export async function generateMetadata({
   const page = await getCachedGeneratedPageBySlug(slug);
 
   if (!page) {
+    const keywordIdMatch = slug.match(/^keyword-(\d+)$/);
+
+    if (keywordIdMatch) {
+      const legacyPage = await prisma.generatedPage.findFirst({
+        where: { keywordId: Number(keywordIdMatch[1]) },
+        include: {
+          keyword: {
+            include: {
+              metrics: { orderBy: { metricDate: "desc" }, take: 1 },
+            },
+          },
+        },
+      });
+
+      if (legacyPage) {
+        const absoluteUrl = new URL(legacyPage.canonicalPath, getSiteUrl()).toString();
+        const relatedKeywords = parseGeneratedPageArray(legacyPage.relatedKeywordsRaw).slice(0, 12);
+        const keywordTerms = Array.from(
+          new Set([legacyPage.h1, legacyPage.title, ...relatedKeywords].map((v) => v.trim()).filter(Boolean)),
+        );
+        const published = legacyPage.status === "published";
+
+        return {
+          title: legacyPage.title,
+          description: legacyPage.description,
+          alternates: { canonical: absoluteUrl },
+          keywords: keywordTerms,
+          openGraph: {
+            title: legacyPage.title,
+            description: legacyPage.description,
+            url: absoluteUrl,
+            type: "article",
+            siteName: "CommunityWikiKorea",
+            locale: "ko_KR",
+            publishedTime: legacyPage.createdAt.toISOString(),
+            modifiedTime: legacyPage.updatedAt.toISOString(),
+          },
+          twitter: {
+            card: "summary_large_image",
+            title: legacyPage.title,
+            description: legacyPage.description,
+          },
+          robots: { index: published, follow: published },
+        };
+      }
+    }
+
     return {};
   }
 
@@ -42,27 +90,30 @@ export async function generateMetadata({
     new Set([page.h1, page.title, ...relatedKeywords].map((value) => value.trim()).filter(Boolean)),
   );
 
+  const seoTitle = `${page.title} - 커뮤니티 실시간 반응 & 트렌드 | 커뮤니티위키코리아`;
+  const seoDescription = `${page.description} | 커뮤니티위키코리아(컴코)에서 실시간 커뮤니티 트렌드를 확인하세요.`;
+
   return {
-    title: page.title,
-    description: page.description,
+    title: seoTitle,
+    description: seoDescription,
     alternates: {
       canonical: absoluteUrl,
     },
     keywords: keywordTerms,
     openGraph: {
-      title: page.title,
-      description: page.description,
+      title: seoTitle,
+      description: seoDescription,
       url: absoluteUrl,
       type: "article",
-      siteName: "CommunityWikiKorea",
+      siteName: "CommunityWikiKorea | 커뮤니티위키코리아",
       locale: "ko_KR",
       publishedTime: page.createdAt.toISOString(),
       modifiedTime: page.updatedAt.toISOString(),
     },
     twitter: {
       card: "summary_large_image",
-      title: page.title,
-      description: page.description,
+      title: seoTitle,
+      description: seoDescription,
     },
     robots: {
       index: published,
@@ -81,6 +132,19 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
   ]);
 
   if (!page) {
+    const keywordIdMatch = slug.match(/^keyword-(\d+)$/);
+
+    if (keywordIdMatch) {
+      const legacyPage = await prisma.generatedPage.findFirst({
+        where: { keywordId: Number(keywordIdMatch[1]) },
+        select: { canonicalPath: true },
+      });
+
+      if (legacyPage) {
+        redirect(legacyPage.canonicalPath);
+      }
+    }
+
     notFound();
   }
 
@@ -100,6 +164,8 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
     page.keyword.level === "primary"
       ? page.keyword.childKeywords.filter((keyword) => keyword.level === "secondary")
       : page.keyword.childKeywords.filter((keyword) => keyword.level === "tertiary");
+  const parentKeyword = page.keyword.parentKeyword;
+  const parentHubPage = parentKeyword?.generatedPages?.[0] ?? null;
   const metric = page.keyword.metrics[0];
   const isPublished = page.status === "published";
   const siteUrl = getSiteUrl();
@@ -192,8 +258,21 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
           </div>
 
           <section className="rounded-[28px] border border-black/10 bg-white/90 p-8 shadow-[0_24px_80px_rgba(63,63,38,0.12)]">
-            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-900">
-              CommunityWikiKorea Page
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-sky-900">
+              {parentHubPage ? (
+                <>
+                  <Link
+                    href={parentHubPage.canonicalPath}
+                    className="text-sky-600 transition-colors hover:text-sky-800"
+                  >
+                    {parentKeyword?.text}
+                  </Link>
+                  <span className="text-slate-400">/</span>
+                  <span>{page.h1}</span>
+                </>
+              ) : (
+                <span>CommunityWikiKorea</span>
+              )}
             </div>
           <h1 className="mt-3 text-4xl font-semibold tracking-tight">{page.h1}</h1>
           <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">{page.summary}</p>
@@ -204,8 +283,7 @@ export default async function KeywordDetailPage({ params }: KeywordDetailPagePro
           </div>
           {!isPublished ? (
             <div className="mt-5 rounded-2xl border border-amber-900/10 bg-amber-50/70 px-4 py-3 text-sm text-amber-900">
-              This page is still under review. It is visible directly by URL but remains excluded
-              from search indexing.
+              이 페이지는 아직 검토 중입니다. URL로 직접 접근 가능하지만, 검색 색인에서는 제외됩니다.
             </div>
           ) : null}
           </section>

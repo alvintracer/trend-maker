@@ -2,9 +2,9 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "CommunityWikiKorea",
-    short_name: "CWK",
-    description: "한국 커뮤니티 인기 게시글과 제목 기반 키워드를 한 화면에서 추적하는 포털.",
+    name: "CommunityWikiKorea | 커뮤니티위키코리아",
+    short_name: "커뮤니티위키",
+    description: "커뮤니티위키코리아(컴코) - 한국 커뮤니티 인기 게시글과 제목 기반 키워드를 한 화면에서 추적하는 포털.",
     start_url: "/",
     display: "standalone",
     background_color: "#f8f7f2",

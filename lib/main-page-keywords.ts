@@ -14,6 +14,9 @@ function getMainPageKeywordDelegate() {
   const delegate = (prisma as typeof prisma & {
     mainPageKeyword?: {
       findMany: (args: {
+        where?: {
+          sourceCount?: { gte?: number };
+        };
         orderBy: Array<{
           sourceCount?: "asc" | "desc";
           count?: "asc" | "desc";
@@ -87,4 +90,56 @@ export async function getMainPageKeywords(limit = 42): Promise<MainPageKeywordSn
     sampleTitles: parseStringArray(row.sampleTitlesJson),
     lastComputedAt: row.lastComputedAt,
   }));
+}
+
+export async function promoteCommunityKeywordsToPrimary(minSourceCount = 3) {
+  const delegate = getMainPageKeywordDelegate();
+
+  if (!delegate || !(await hasMainPageKeywordTable())) {
+    return { promoted: 0 };
+  }
+
+  const hotKeywords = await delegate.findMany({
+    where: {
+      sourceCount: {
+        gte: minSourceCount,
+      },
+    },
+    orderBy: [{ sourceCount: "desc" }, { count: "desc" }],
+    take: 30,
+  });
+
+  let promoted = 0;
+
+  for (const keyword of hotKeywords) {
+    const normalizedText = keyword.normalizedText;
+    const existing = await prisma.keyword.findUnique({
+      where: { normalizedText },
+      select: { id: true, level: true },
+    });
+
+    if (existing) {
+      await prisma.keyword.update({
+        where: { normalizedText },
+        data: { lastSeenAt: new Date() },
+      });
+      continue;
+    }
+
+    await prisma.keyword.create({
+      data: {
+        text: keyword.keywordText,
+        normalizedText,
+        level: "primary",
+        status: "tracking",
+        region: "KR",
+        language: "ko",
+        sourceLabel: "community_auto",
+        isManual: false,
+      },
+    });
+    promoted += 1;
+  }
+
+  return { promoted };
 }

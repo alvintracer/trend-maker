@@ -63,21 +63,22 @@ type KeywordTag = {
 };
 
 export const metadata: Metadata = {
-  title: "CommunityWikiKorea",
-  description: "한국 커뮤니티 인기 게시글과 제목 기반 키워드를 한 화면에서 추적하는 포털.",
+  title: "CommunityWikiKorea | 커뮤니티위키코리아 - 실시간 커뮤니티 인기글 & 트렌드 키워드",
+  description: "커뮤니티위키코리아(컴코) - 한국 커뮤니티 인기 게시글과 제목 기반 키워드를 한 화면에서 추적하는 포털. 디시, 에펨코리아, 아카라이브, 독드립 실시간 인기글 모음.",
+  keywords: ["커뮤니티위키코리아", "커뮤니티코리아", "커뮤니티위키", "컴코", "실시간 인기글", "커뮤니티 트렌드", "디시인사이드 인기글", "에펨코리아 인기글"],
   alternates: {
     canonical: "/",
   },
   openGraph: {
     type: "website",
-    title: "CommunityWikiKorea",
-    description: "한국 커뮤니티 인기 게시글과 제목 기반 키워드를 한 화면에서 추적하는 포털.",
+    title: "CommunityWikiKorea | 커뮤니티위키코리아",
+    description: "커뮤니티위키코리아(컴코) - 한국 커뮤니티 인기 게시글과 제목 기반 키워드를 한 화면에서 추적하는 포털.",
     url: "/",
   },
   twitter: {
     card: "summary_large_image",
-    title: "CommunityWikiKorea",
-    description: "한국 커뮤니티 인기 게시글과 제목 기반 키워드를 한 화면에서 추적하는 포털.",
+    title: "CommunityWikiKorea | 커뮤니티위키코리아",
+    description: "커뮤니티위키코리아(컴코) - 한국 커뮤니티 인기 게시글과 제목 기반 키워드를 한 화면에서 추적하는 포털.",
   },
 };
 
@@ -155,6 +156,13 @@ export default async function Home() {
     },
   });
 
+  const publishedPageMap = new Map(
+    (await prisma.generatedPage.findMany({
+      where: { status: GeneratedPageStatus.published },
+      select: { slug: true, keyword: { select: { text: true } } },
+    })).map((page) => [page.keyword.text, `/keywords/${page.slug}`]),
+  );
+
   const latestCommunityFeed = interleaveCommunityFeed(
     MAIN_PAGE_SOURCE_IDS.map((externalId) =>
       latestCommunityDocuments
@@ -193,7 +201,7 @@ export default async function Home() {
   const mixedKeywordTags = mixKeywordTags({
     communityKeywords: extractedKeywords.map((keyword) => ({
       text: keyword.text,
-      href: null,
+      href: publishedPageMap.get(keyword.text) ?? null,
       variant: "community" as const,
     })),
     primaryKeywords: promotedKeywordTags.filter((keyword) => keyword.variant === "primary"),
@@ -286,14 +294,25 @@ export default async function Home() {
                 키워드를 추출해 보여줍니다. 
               </p>
               <div className="mt-6 flex flex-wrap justify-center gap-2">
-                {extractedKeywords.slice(0, 10).map((keyword) => (
-                  <span
-                    key={keyword.text}
-                    className="rounded-full border border-white/12 bg-white/10 px-3 py-1.5 text-xs font-medium text-sky-100"
-                  >
-                    {keyword.text}
-                  </span>
-                ))}
+                {extractedKeywords.slice(0, 10).map((keyword) => {
+                  const detailHref = publishedPageMap.get(keyword.text);
+                  return detailHref ? (
+                    <a
+                      key={keyword.text}
+                      href={detailHref}
+                      className="rounded-full border border-white/12 bg-white/10 px-3 py-1.5 text-xs font-medium text-sky-100 transition-colors hover:bg-white/20"
+                    >
+                      {keyword.text}
+                    </a>
+                  ) : (
+                    <span
+                      key={keyword.text}
+                      className="rounded-full border border-white/12 bg-white/10 px-3 py-1.5 text-xs font-medium text-sky-100"
+                    >
+                      {keyword.text}
+                    </span>
+                  );
+                })}
               </div>
             </div>
           </section>

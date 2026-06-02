@@ -181,6 +181,36 @@ export async function generateSecondaryKeywordsForPrimaryKeywords(
     }
   }
 
+  // Phase 3: Community angle suffix queries via Google Suggest
+  const COMMUNITY_ANGLE_SUFFIXES = ["커뮤니티", "디시", "반응", "여론", "실시간"];
+  const ANGLE_QUERY_LIMIT = 5;
+
+  for (const parentKeyword of parentKeywords) {
+    if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+      break;
+    }
+
+    for (const suffix of COMMUNITY_ANGLE_SUFFIXES) {
+      const angleQuery = `${parentKeyword.text} ${suffix}`;
+
+      try {
+        await sleep(requestDelayMs);
+        const angleCandidates = await withKeywordTimeout(
+          fetchGoogleSuggestCandidates(parentKeyword.id, angleQuery),
+          PER_KEYWORD_TIMEOUT_MS,
+        );
+        const limited = angleCandidates.slice(0, ANGLE_QUERY_LIMIT);
+        allCandidates.push(...limited);
+
+        const existing = freshCandidatesByParent.get(parentKeyword.id) ?? [];
+        freshCandidatesByParent.set(parentKeyword.id, [...existing, ...limited]);
+        consecutiveFailures = 0;
+      } catch {
+        // Angle queries are best-effort; don't count toward consecutive failures
+      }
+    }
+  }
+
   if (allCandidates.length === 0 && touchedSecondaryKeywordIds.size === 0) {
     throw new Error(
       failedQueries.length > 0 && cachedParentKeywordCount === 0

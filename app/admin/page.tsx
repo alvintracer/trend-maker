@@ -35,13 +35,15 @@ import { prisma } from "@/lib/prisma";
 import { getTrafficRedirectSettings } from "@/lib/traffic-redirect-settings";
 
 export const metadata: Metadata = {
-  title: "Admin",
-  description: "CommunityWikiKorea 운영 대시보드",
+  title: "Admin | CommunityWikiKorea",
+  description: "CommunityWikiKorea 커뮤니티위키코리아 운영 대시보드",
   robots: {
     index: false,
     follow: false,
   },
 };
+
+export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
   await assertAdminAuthenticated();

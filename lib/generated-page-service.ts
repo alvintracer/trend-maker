@@ -270,41 +270,41 @@ function buildPageCopy(input: {
     input.secondaryKeywords,
   );
   const parsedDocs = sampledDocs.map((document) => parseDcBestContentBlock(document.content));
-  const fallbackRows = parsedDocs.map((item) => item.row).filter(Boolean);
   const emphasizedSecondaries = input.secondaryKeywords.slice(0, 8);
   const descriptionKeywords = emphasizedSecondaries.slice(0, 4);
 
-  const summary = truncate(
-    `${input.keywordText} 관련 흐름을 디시 실시간베스트 최근 5페이지 기준으로 정리했습니다. ${emphasizedSecondaries.join(", ") || input.keywordText} 같은 세부 키워드와 함께 어떤 맥락에서 묶이는지 빠르게 읽을 수 있게 구성했습니다.`,
-    220,
+  const title = truncate(
+    `${input.keywordText} 커뮤니티 반응 - 실시간 인기글 & 트렌드`,
+    60,
   );
-  const title = truncate(`${input.keywordText}`, 60);
   const description = truncate(
-    `${input.keywordText} 중심으로 ${descriptionKeywords.join(", ") || "연관 검색어"} 같은 세컨더리 키워드와 최근 디시 반응을 함께 정리한 페이지입니다.`,
-    110,
+    `${input.keywordText} 관련 ${descriptionKeywords.join(", ") || "연관 키워드"} 등 커뮤니티 실시간 인기글과 반응을 정리했습니다. | 커뮤니티위키코리아`,
+    155,
+  );
+  const summary = truncate(
+    `${input.keywordText} 키워드가 현재 커뮤니티에서 화제입니다. ${emphasizedSecondaries.join(", ") || input.keywordText} 같은 세부 키워드와 함께 디시인사이드 실시간베스트 기준으로 최근 반응을 정리했습니다.`,
+    220,
   );
   const bodyParagraphs = [
     truncate(
-      `${input.keywordText}는 페이지 헤더의 대표 주제로 두고, ${emphasizedSecondaries.join(", ") || input.keywordText} 같은 세컨더리 키워드를 본문과 메타 설명에 녹여 최근 흐름을 읽기 쉽게 구성했습니다. 상단 노출 글들을 기준으로 보면 관련 표현 조합과 반응 수치가 빠르게 바뀌기 때문에 대표 키워드와 세부 표현을 같이 보는 편이 유리합니다.`,
+      `${input.keywordText} 키워드가 현재 디시인사이드, 에펨코리아 등 주요 커뮤니티에서 동시에 화제가 되고 있습니다. ${emphasizedSecondaries.length > 0 ? `관련 검색어로는 ${emphasizedSecondaries.join(", ")} 등이 함께 언급되고 있으며, ` : ""}아래는 실시간베스트 기준 최근 인기글 반응입니다.`,
       320,
     ),
     ...parsedDocs.map((item, index) =>
       truncate(
-        `${index + 1}번째 참고 글은 "${item.title || fallbackRows[index] || input.keywordText}" 형태였고 작성 시점은 ${
-          item.date || "최근"
-        }, 조회 ${item.views || "확인 중"}, 추천 ${item.recommends || "확인 중"} 수준이었습니다. 이 조합은 ${input.keywordText}와 세컨더리 키워드가 어떤 문장 패턴으로 같이 소비되는지 보여주는 실시간 샘플로 볼 수 있습니다.`,
+        `${index + 1}. "${item.title || input.keywordText}" — 작성일 ${item.date || "최근"}, 조회수 ${item.views || "확인 중"}, 추천 ${item.recommends || "확인 중"}. ${input.keywordText} 관련 커뮤니티 반응을 보여주는 실시간 인기글입니다.`,
         320,
       ),
     ),
     truncate(
-      `${input.keywordText}와 함께 자주 붙는 표현으로는 ${emphasizedSecondaries.join(", ") || input.keywordText} 등이 있습니다. 따라서 본문과 메타데이터는 단일 정의형 문장보다 최근 노출 패턴과 반응 맥락을 함께 읽을 수 있도록 구성했습니다.`,
+      `${input.keywordText}와 함께 자주 검색되는 키워드로는 ${emphasizedSecondaries.join(", ") || input.keywordText} 등이 있습니다. 커뮤니티위키코리아에서는 이러한 트렌드 키워드의 실시간 반응과 인기글을 지속적으로 업데이트하고 있습니다.`,
       320,
     ),
   ].filter(Boolean);
 
   const evidenceSnippets = parsedDocs.map((item) =>
     truncate(
-      `${item.title || input.keywordText} | 작성자 ${item.author || "익명"} | ${item.date || "최근"} | 조회 ${item.views || "-"} | 추천 ${item.recommends || "-"}`,
+      `${item.title || input.keywordText} | ${item.author || "익명"} | ${item.date || "최근"} | 조회 ${item.views || "-"} | 추천 ${item.recommends || "-"}`,
       160,
     ),
   );
@@ -444,6 +444,172 @@ export async function generatePagesForKeywords(keywordIds: number[]) {
   };
 }
 
+export async function generatePagesForSecondaryKeywords(secondaryKeywordIds: number[]) {
+  const [keywords, dcBestDocs] = await Promise.all([
+    prisma.keyword.findMany({
+      where: {
+        id: {
+          in: secondaryKeywordIds,
+        },
+        level: KeywordLevel.secondary,
+        status: {
+          in: [KeywordStatus.analyzed, KeywordStatus.tracking],
+        },
+      },
+      include: {
+        parentKeyword: {
+          include: {
+            generatedPages: {
+              where: {
+                status: {
+                  in: [GeneratedPageStatus.published, GeneratedPageStatus.ready],
+                },
+              },
+              select: {
+                slug: true,
+                canonicalPath: true,
+              },
+              take: 1,
+            },
+          },
+        },
+        childKeywords: {
+          where: {
+            level: KeywordLevel.tertiary,
+          },
+          include: {
+            metrics: {
+              orderBy: {
+                metricDate: "desc",
+              },
+              take: 1,
+            },
+          },
+          take: 40,
+        },
+        metrics: {
+          orderBy: {
+            metricDate: "desc",
+          },
+          take: 1,
+        },
+      },
+    }),
+    getDcBestRawDocuments(),
+  ]);
+
+  if (keywords.length === 0) {
+    return { requestedCount: secondaryKeywordIds.length, generatedCount: 0 };
+  }
+
+  let generatedCount = 0;
+
+  for (const keyword of keywords) {
+    const siblingKeywords = keyword.parentKeyword
+      ? await prisma.keyword.findMany({
+          where: {
+            parentKeywordId: keyword.parentKeyword.id,
+            level: KeywordLevel.secondary,
+            id: { not: keyword.id },
+            status: { in: [KeywordStatus.analyzed, KeywordStatus.tracking] },
+          },
+          select: { text: true },
+          take: 12,
+        })
+      : [];
+    const relatedTexts = [
+      ...siblingKeywords.map((s) => s.text),
+      ...keyword.childKeywords.map((c) => c.text),
+    ];
+
+    const parentText = keyword.parentKeyword?.text ?? keyword.text;
+    const parentPagePath = keyword.parentKeyword?.generatedPages[0]?.canonicalPath ?? null;
+
+    const sampledDocs = selectSupportingDocuments(dcBestDocs, keyword.text, relatedTexts);
+    const parsedDocs = sampledDocs.map((document) => parseDcBestContentBlock(document.content));
+    const emphasizedRelated = relatedTexts.slice(0, 6);
+
+    const title = truncate(`${keyword.text} - ${parentText} 커뮤니티 반응 & 트렌드`, 60);
+    const description = truncate(
+      `${keyword.text} 관련 커뮤니티 실시간 인기글과 반응을 정리했습니다. ${parentText} 키워드의 세부 트렌드 페이지입니다. | 커뮤니티위키코리아`,
+      155,
+    );
+    const summary = truncate(
+      `${keyword.text}는 ${parentText}의 세부 트렌드 키워드입니다. 커뮤니티 실시간 반응과 관련 인기글을 정리했습니다.`,
+      220,
+    );
+    const bodyParagraphs = [
+      truncate(
+        `${keyword.text} 키워드는 ${parentText}${parentPagePath ? " 허브" : ""} 주제 아래에서 커뮤니티에서 주목받고 있는 세부 트렌드입니다. ${emphasizedRelated.length > 0 ? `비슷한 맥락의 키워드로는 ${emphasizedRelated.join(", ")} 등이 있습니다.` : ""}`,
+        320,
+      ),
+      ...parsedDocs.map((item, index) =>
+        truncate(
+          `${index + 1}. "${item.title || keyword.text}" — 작성일 ${item.date || "최근"}, 조회수 ${item.views || "확인 중"}, 추천 ${item.recommends || "확인 중"}.`,
+          320,
+        ),
+      ),
+      truncate(
+        `${keyword.text} 외에도 ${emphasizedRelated.join(", ") || parentText} 등 관련 키워드의 실시간 커뮤니티 반응을 커뮤니티위키코리아에서 확인할 수 있습니다.`,
+        320,
+      ),
+    ].filter(Boolean);
+
+    const evidenceSnippets = parsedDocs.map((item) =>
+      truncate(
+        `${item.title || keyword.text} | ${item.author || "익명"} | ${item.date || "최근"} | 조회 ${item.views || "-"} | 추천 ${item.recommends || "-"}`,
+        160,
+      ),
+    );
+
+    const slug = await resolveGeneratedPageSlug(keyword.id, keyword.normalizedText);
+    const canonicalPath = `/keywords/${slug}`;
+
+    await prisma.generatedPage.upsert({
+      where: {
+        keywordId: keyword.id,
+      },
+      update: {
+        slug,
+        title,
+        description,
+        h1: keyword.text,
+        summary,
+        faqRaw: JSON.stringify(bodyParagraphs),
+        relatedKeywordsRaw: JSON.stringify([
+          ...relatedTexts.slice(0, 10),
+          ...evidenceSnippets.slice(0, 6),
+        ]),
+        canonicalPath,
+        status: GeneratedPageStatus.ready,
+        lastGeneratedAt: new Date(),
+      },
+      create: {
+        keywordId: keyword.id,
+        slug,
+        title,
+        description,
+        h1: keyword.text,
+        summary,
+        faqRaw: JSON.stringify(bodyParagraphs),
+        relatedKeywordsRaw: JSON.stringify([
+          ...relatedTexts.slice(0, 10),
+          ...evidenceSnippets.slice(0, 6),
+        ]),
+        canonicalPath,
+        status: GeneratedPageStatus.ready,
+      },
+    });
+
+    generatedCount += 1;
+  }
+
+  return {
+    requestedCount: secondaryKeywordIds.length,
+    generatedCount,
+  };
+}
+
 export async function getGeneratedPages(limit = 120) {
   return prisma.generatedPage.findMany({
     include: {
@@ -496,6 +662,20 @@ export async function getGeneratedPageBySlug(slug: string) {
       keyword: {
         include: {
           hub: true,
+          parentKeyword: {
+            include: {
+              generatedPages: {
+                where: {
+                  status: GeneratedPageStatus.published,
+                },
+                select: {
+                  slug: true,
+                  canonicalPath: true,
+                },
+                take: 1,
+              },
+            },
+          },
           analyses: {
             orderBy: {
               generatedAt: "desc",
@@ -506,7 +686,9 @@ export async function getGeneratedPageBySlug(slug: string) {
             include: {
               generatedPages: {
                 where: {
-                  status: GeneratedPageStatus.published,
+                  status: {
+                    in: [GeneratedPageStatus.published, GeneratedPageStatus.ready],
+                  },
                 },
                 orderBy: {
                   updatedAt: "desc",

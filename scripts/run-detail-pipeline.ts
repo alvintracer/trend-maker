@@ -1,5 +1,6 @@
 import { ingestSource } from "@/lib/ingestion-service";
 import { runTrackedFullPipeline } from "@/lib/full-pipeline-service";
+import { promoteCommunityKeywordsToPrimary } from "@/lib/main-page-keywords";
 
 async function main() {
   const forceRefresh = process.env.DETAIL_SECONDARY_FORCE_REFRESH !== "0";
@@ -9,6 +10,9 @@ async function main() {
     10,
   );
   const limitPerPrimary = Number.parseInt(process.env.DETAIL_LIMIT_PER_PRIMARY ?? "10", 10);
+
+  const communityPromotion = await promoteCommunityKeywordsToPrimary(3);
+  console.log(`Promoted ${communityPromotion.promoted} community keywords to primary`);
 
   const dcbestIngest = await ingestSource("dcinside-dcbest");
   const result = await runTrackedFullPipeline({
