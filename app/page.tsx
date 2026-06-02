@@ -3,6 +3,8 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import { Fragment } from "react";
 
+import { KeywordTreemap } from "@/components/keyword-treemap";
+
 import { GlobalAdScripts } from "@/components/ads/global-ad-scripts";
 import { PublicAdSlot } from "@/components/ads/public-ad-slot";
 import { getAdSlotSettingsMap } from "@/lib/ad-settings";
@@ -316,6 +318,36 @@ export default async function Home() {
               </div>
             </div>
           </section>
+
+          {extractedKeywords.length > 0 && (
+            <section className="rounded-[30px] border border-black/10 bg-[#0f172a] p-5 shadow-[0_20px_70px_rgba(15,23,42,0.2)] sm:p-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-400/80">
+                    Keyword Treemap
+                  </div>
+                  <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">
+                    키워드 비중 맵
+                  </h2>
+                </div>
+                <div className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-medium text-sky-200">
+                  상위 {Math.min(extractedKeywords.length, 20)}개
+                </div>
+              </div>
+              <p className="mt-3 text-sm leading-6 text-slate-400">
+                사각형이 클수록 커뮤니티에서 더 많이 언급되고 있는 키워드입니다. 클릭하면 상세 트렌드 페이지로 이동합니다.
+              </p>
+              <div className="mt-4">
+                <KeywordTreemap
+                  items={extractedKeywords.slice(0, 20).map((keyword) => ({
+                    text: keyword.text,
+                    value: keyword.count,
+                    href: publishedPageMap.get(keyword.text) ?? null,
+                  }))}
+                />
+              </div>
+            </section>
+          )}
 
           <section className="rounded-[30px] border border-black/10 bg-white/92 p-5 shadow-[0_16px_60px_rgba(30,41,59,0.06)] backdrop-blur sm:p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
